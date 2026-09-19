@@ -19,8 +19,8 @@ const VIEW_MODES: { value: ViewMode; label: string }[] = [
 ]
 
 const EDITOR_VIEWS: { value: EditorView; label: string }[] = [
-  { value: 'plan', label: 'План' },
-  { value: 'elevation', label: 'По высоте' },
+  { value: 'plan', label: 'Вид сверху' },
+  { value: 'elevation', label: 'Вид спереди' },
 ]
 
 export function App() {
@@ -28,6 +28,8 @@ export function App() {
   const setTool = useAppStore((s) => s.setTool)
   const ortho = useAppStore((s) => s.orthoSnap)
   const setOrthoSnap = useAppStore((s) => s.setOrthoSnap)
+  const snapToWalls = useAppStore((s) => s.snapToWalls)
+  const setSnapToWalls = useAppStore((s) => s.setSnapToWalls)
   const viewMode = useAppStore((s) => s.viewMode)
   const setViewMode = useAppStore((s) => s.setViewMode)
   const editorView = useAppStore((s) => s.editorView)
@@ -87,6 +89,15 @@ export function App() {
                 className="h-4 w-4 accent-blue-600"
               />
               Углы 90°
+            </label>
+            <label className="mt-1.5 flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={snapToWalls}
+                onChange={(e) => setSnapToWalls(e.target.checked)}
+                className="h-4 w-4 accent-blue-600"
+              />
+              Магнит к стенам
             </label>
           </section>
 

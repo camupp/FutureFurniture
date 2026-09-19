@@ -47,10 +47,13 @@ export function Scene3D() {
           intensity={1.7}
           castShadow
           shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-10}
-          shadow-camera-right={10}
-          shadow-camera-top={10}
-          shadow-camera-bottom={-10}
+          shadow-camera-left={-8}
+          shadow-camera-right={8}
+          shadow-camera-top={8}
+          shadow-camera-bottom={-8}
+          // Без смещения тонкие плиты покрываются полосами самозатенения (shadow acne).
+          shadow-bias={-0.0004}
+          shadow-normalBias={0.02}
         />
 
         <RoomMesh room={room} />
@@ -58,6 +61,7 @@ export function Scene3D() {
           <FurnitureMesh
             key={item.id}
             item={item}
+            others={furniture}
             selected={selection?.kind === 'furniture' && selection.id === item.id}
             invalid={invalid.has(item.id)}
             onSelect={() => select({ kind: 'furniture', id: item.id })}
@@ -99,6 +103,12 @@ function CameraFit({ target, radius, fitKey }: CameraFitProps) {
 
   // На первом кадре канвас может быть нулевого размера — фитить камеру по нему нельзя.
   const hasSize = size.width > 0 && size.height > 0
+  /**
+   * Пропорции канваса, огрублённые до четвертей. Мелкое изменение размера окна камеру
+   * не трогает, а смена раскладки (2D+3D → 3D) переобучает её: иначе кадр, рассчитанный
+   * на узкую панель, оставляет комнату за пределами экрана.
+   */
+  const aspectBucket = hasSize ? Math.round((size.width / size.height) * 4) : 0
 
   useEffect(() => {
     if (!hasSize) return
@@ -116,9 +126,9 @@ function CameraFit({ target, radius, fitKey }: CameraFitProps) {
     } else {
       camera.lookAt(target[0], target[1], target[2])
     }
-    // Камера выставляется при монтировании и по кнопке «Сбросить камеру».
+    // Камера выставляется при монтировании, по кнопке «Сбросить камеру» и при смене раскладки.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey, controls, hasSize])
+  }, [fitKey, controls, hasSize, aspectBucket])
 
   return null
 }

@@ -1,6 +1,7 @@
 import { Group, Label, Line, Rect, Tag, Text } from 'react-konva'
 import type Konva from 'konva'
 import type { FurnitureItem, Point } from '../../../shared/types'
+import type { Placement } from '../../../shared/utils/snapping'
 
 type Props = {
   item: FurnitureItem
@@ -10,14 +11,42 @@ type Props = {
   scale: number
   onSelect: () => void
   onMove: (position: Point) => void
+  /** Куда блок встанет, если отпустить его здесь. Считается на каждый кадр перетаскивания. */
+  resolve: (position: Point) => Placement
 }
 
-export function FurnitureShape({ item, selected, invalid, draggable, scale, onSelect, onMove }: Props) {
+export function FurnitureShape({
+  item,
+  selected,
+  invalid,
+  draggable,
+  scale,
+  onSelect,
+  onMove,
+  resolve,
+}: Props) {
   const { width, depth, facadeColor } = item.params
   const stroke = invalid ? '#dc2626' : selected ? '#2563eb' : '#334155'
 
+  /**
+   * Блок притягивается прямо под курсором, а не прыгает после отпускания.
+   * Заодно это держит узел Konva и модель в одной позиции: если привязка вернула
+   * ту же точку, стор не меняется и повторного рендера не будет — узел обязан
+   * стоять там же, иначе план и 3D разъедутся.
+   */
+  const applyPlacement = (node: Konva.Node) => {
+    const placement = resolve({ x: node.x(), y: node.y() })
+    node.position(placement.position)
+    node.rotation(placement.rotation)
+    return placement
+  }
+
+  const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
+    applyPlacement(e.target)
+  }
+
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    onMove({ x: Math.round(e.target.x()), y: Math.round(e.target.y()) })
+    onMove(applyPlacement(e.target).position)
   }
 
   return (
@@ -28,6 +57,7 @@ export function FurnitureShape({ item, selected, invalid, draggable, scale, onSe
       draggable={draggable}
       onMouseDown={onSelect}
       onTouchStart={onSelect}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
     >
       <Rect
@@ -43,14 +73,16 @@ export function FurnitureShape({ item, selected, invalid, draggable, scale, onSe
         // Навесной блок на плане принято показывать пунктиром.
         dash={item.elevation > 0 ? [10, 6] : undefined}
       />
-      {/* Фасад блока — сторона +y в локальных координатах. */}
-      <Line
-        points={[-width / 2, depth / 2, width / 2, depth / 2]}
-        stroke={stroke}
-        strokeWidth={5}
-        strokeScaleEnabled={false}
-        listening={false}
-      />
+      {item.type === 'cabinet' && (
+        /* Фасад блока — сторона +y в локальных координатах. */
+        <Line
+          points={[-width / 2, depth / 2, width / 2, depth / 2]}
+          stroke={stroke}
+          strokeWidth={5}
+          strokeScaleEnabled={false}
+          listening={false}
+        />
+      )}
       <Label
         x={0}
         y={0}

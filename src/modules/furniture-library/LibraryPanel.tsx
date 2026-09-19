@@ -1,28 +1,38 @@
 import { useAppStore } from '../../shared/store'
-import { DEFAULT_CABINET } from '../../shared/types'
+import { BLOCK_PRESETS, PRESET_CATEGORIES } from './catalog'
 
 export function LibraryPanel() {
-  const addCabinet = useAppStore((s) => s.addCabinet)
+  const addBlock = useAppStore((s) => s.addBlock)
 
   return (
-    <section>
-      <h2 className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">Библиотека</h2>
-      <button
-        type="button"
-        onClick={addCabinet}
-        className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-blue-400 hover:shadow-sm"
-      >
-        <div className="mb-2 flex h-16 items-end justify-center rounded bg-slate-50">
-          <div
-            className="h-10 w-14 rounded-t border border-slate-300"
-            style={{ backgroundColor: DEFAULT_CABINET.facadeColor }}
-          />
+    <section className="flex flex-col gap-4">
+      <h2 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Библиотека</h2>
+      {PRESET_CATEGORIES.map((category) => (
+        <div key={category}>
+          <h3 className="mb-1.5 text-xs text-slate-400">{category}</h3>
+          <div className="flex flex-col gap-1.5">
+            {BLOCK_PRESETS.filter((preset) => preset.category === category).map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => addBlock(preset)}
+                className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white p-2 text-left transition hover:border-blue-400 hover:shadow-sm"
+              >
+                <span
+                  className="h-7 w-7 shrink-0 rounded border border-slate-300"
+                  style={{ backgroundColor: preset.params.facadeColor }}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-slate-800">{preset.label}</span>
+                  <span className="block text-xs text-slate-500">
+                    {preset.params.width}×{preset.params.depth} мм
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="text-sm font-medium text-slate-800">Шкаф напольный</div>
-        <div className="text-xs text-slate-500">
-          {DEFAULT_CABINET.width}×{DEFAULT_CABINET.height}×{DEFAULT_CABINET.depth} мм
-        </div>
-      </button>
+      ))}
     </section>
   )
 }

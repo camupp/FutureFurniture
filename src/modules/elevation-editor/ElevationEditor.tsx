@@ -1,14 +1,15 @@
-import { Fragment, useEffect, useMemo, useRef } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Group, Label, Layer, Line, Rect, Stage, Tag, Text } from 'react-konva'
 import type Konva from 'konva'
 import { useAppStore } from '../../shared/store'
-import { bounds, itemFootprint, roomPolygon, snap } from '../../shared/utils/geometry'
+import type { FurnitureItem } from '../../shared/types'
+import { bounds, itemFootprint, roomPolygon } from '../../shared/utils/geometry'
+import { placeBlockInSection } from '../../shared/utils/snapping'
 import { clamp } from '../../shared/utils/units'
 import { useElementSize } from '../../shared/utils/useElementSize'
 import { useStageViewport } from '../../shared/utils/useStageViewport'
 import { invalidItemIds } from '../validation/rules'
 
-const GRID_STEP = 10
 const HEIGHT_GUIDE_STEP = 500
 
 /**
@@ -26,8 +27,8 @@ export function ElevationEditor() {
   const tool = useAppStore((s) => s.tool)
   const selection = useAppStore((s) => s.selection)
   const select = useAppStore((s) => s.select)
-  const moveFurniture = useAppStore((s) => s.moveFurniture)
-  const elevateFurniture = useAppStore((s) => s.elevateFurniture)
+  const snapToWalls = useAppStore((s) => s.snapToWalls)
+  const dropInSection = useAppStore((s) => s.dropInSection)
 
   const { view, fitTo, zoomBy, handleWheel, handleStageDragEnd } = useStageViewport(width, height)
 
@@ -58,6 +59,20 @@ export function ElevationEditor() {
         })
         .sort((a, b) => a.depth - b.depth),
     [furniture],
+  )
+
+  const resolvePlacement = useCallback(
+    (item: FurnitureItem, x: number, elevation: number) =>
+      placeBlockInSection(
+        item,
+        x,
+        elevation,
+        room,
+        furniture.filter((other) => other.id !== item.id),
+        roomBox.center,
+        snapToWalls,
+      ),
+    [room, furniture, roomBox.center, snapToWalls],
   )
 
   const guides = useMemo(() => {
@@ -126,12 +141,19 @@ export function ElevationEditor() {
               const blockHeight = item.params.height
               const maxElevation = Math.max(0, room.wallHeight - blockHeight)
 
+              /**
+               * Живой магнит, как на виде сверху: блок притягивается к соседям и
+               * по горизонтали, и по высоте прямо во время перетаскивания.
+               */
+              const applyPlacement = (node: Konva.Node) => {
+                const placement = resolvePlacement(item, node.x(), -node.y())
+                node.position({ x: placement.position.x, y: -placement.elevation })
+                return placement
+              }
+
               const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-                moveFurniture(item.id, {
-                  x: snap(e.target.x(), GRID_STEP),
-                  y: item.position.y,
-                })
-                elevateFurniture(item.id, snap(-e.target.y(), GRID_STEP))
+                const placement = applyPlacement(e.target)
+                dropInSection(item.id, placement.position.x, placement.elevation)
               }
 
               return (
@@ -146,6 +168,7 @@ export function ElevationEditor() {
                   })}
                   onMouseDown={() => tool === 'select' && select({ kind: 'furniture', id: item.id })}
                   onTouchStart={() => tool === 'select' && select({ kind: 'furniture', id: item.id })}
+                  onDragMove={(e) => applyPlacement(e.target)}
                   onDragEnd={handleDragEnd}
                 >
                   <Rect
@@ -189,7 +212,7 @@ export function ElevationEditor() {
         <span className="rounded-md bg-white/90 px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm">
           {tool === 'pan'
             ? 'Тяните холст для перемещения'
-            : 'Вид по высоте · тяните блок вверх-вниз, чтобы поднять его над полом'}
+            : 'Вид спереди · тяните блок вверх-вниз, чтобы поднять его над полом'}
         </span>
         <div className="pointer-events-auto flex gap-1">
           <ViewButton onClick={() => zoomBy(1.25)} label="+" />

@@ -1,1 +1,5 @@
 export { Cabinet } from './Cabinet'
+export { Countertop } from './Countertop'
+export type { Cutout } from './slab'
+export { Hob } from './Hob'
+export { Sink } from './Sink'

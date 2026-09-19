@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Circle, Label, Layer, Line, Stage, Tag, Text } from 'react-konva'
 import type Konva from 'konva'
 import { useAppStore } from '../../shared/store'
-import type { Point } from '../../shared/types'
-import { distance, orthoSnap, roomPolygon, snapPoint } from '../../shared/utils/geometry'
+import type { FurnitureItem, Point } from '../../shared/types'
+import { bounds, distance, orthoSnap, roomPolygon, snapPoint } from '../../shared/utils/geometry'
+import { placeBlock } from '../../shared/utils/snapping'
 import { useElementSize } from '../../shared/utils/useElementSize'
 import { stagePointer, useStageViewport } from '../../shared/utils/useStageViewport'
 import { invalidItemIds } from '../validation/rules'
@@ -26,12 +27,13 @@ export function RoomEditor() {
 
   const room = useAppStore((s) => s.room)
   const furniture = useAppStore((s) => s.furniture)
+  const snapToWalls = useAppStore((s) => s.snapToWalls)
   const tool = useAppStore((s) => s.tool)
   const ortho = useAppStore((s) => s.orthoSnap)
   const selection = useAppStore((s) => s.selection)
   const select = useAppStore((s) => s.select)
   const addWall = useAppStore((s) => s.addWall)
-  const moveFurniture = useAppStore((s) => s.moveFurniture)
+  const dropFurniture = useAppStore((s) => s.dropFurniture)
   const removeFurniture = useAppStore((s) => s.removeFurniture)
   const removeWall = useAppStore((s) => s.removeWall)
 
@@ -53,6 +55,22 @@ export function RoomEditor() {
     [polygon],
   )
   const fitToContent = useCallback(() => fitTo(fitPoints), [fitTo, fitPoints])
+
+  const roomCenter = useMemo(() => (polygon.length ? bounds(polygon).center : { x: 0, y: 0 }), [polygon])
+
+  /** Живой предпросмотр привязки: считается на каждый кадр перетаскивания блока. */
+  const resolvePlacement = useCallback(
+    (item: FurnitureItem, position: Point) =>
+      placeBlock(
+        item,
+        position,
+        room,
+        furniture.filter((other) => other.id !== item.id),
+        roomCenter,
+        snapToWalls,
+      ),
+    [room, furniture, roomCenter, snapToWalls],
+  )
 
   useEffect(() => {
     if (fittedRef.current || !width || !height) return
@@ -224,7 +242,8 @@ export function RoomEditor() {
                 draggable={tool === 'select'}
                 scale={view.scale}
                 onSelect={() => tool === 'select' && select({ kind: 'furniture', id: item.id })}
-                onMove={(position) => moveFurniture(item.id, snapPoint(position, GRID_STEP))}
+                onMove={(position) => dropFurniture(item.id, position)}
+                resolve={(position) => resolvePlacement(item, position)}
               />
             ))}
 
@@ -267,7 +286,7 @@ export function RoomEditor() {
               : 'Клик — первая точка стены'
             : tool === 'pan'
               ? 'Тяните холст для перемещения'
-              : 'План · 1 клетка = 1000 мм'}
+              : 'Вид сверху · 1 клетка = 1000 мм'}
         </span>
         <div className="pointer-events-auto flex gap-1">
           <ViewButton onClick={() => zoomBy(1.25)} label="+" />

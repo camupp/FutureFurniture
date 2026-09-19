@@ -1,18 +1,20 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import {
-  CABINET_LIMITS,
-  DEFAULT_CABINET,
+  BLOCK_LIMITS,
   projectSchema,
   WALL_LIMITS,
-  type CabinetParams,
+  type BlockParams,
+  type BlockType,
   type FurnitureItem,
   type Point,
   type Project,
   type Room,
   type Wall,
 } from './types'
+import { snapElevation } from './utils/elevation'
 import { bounds, roomPolygon, setWallLength } from './utils/geometry'
+import { placeBlock, placeBlockInSection } from './utils/snapping'
 import { clamp } from './utils/units'
 
 export type Tool = 'select' | 'wall' | 'pan'
@@ -44,24 +46,30 @@ function createDefaultRoom(): Room {
   return { walls, wallHeight: DEFAULT_WALL_HEIGHT }
 }
 
-function clampParams(params: CabinetParams): CabinetParams {
+function clampParams(type: BlockType, params: BlockParams): BlockParams {
+  const limits = BLOCK_LIMITS[type]
   return {
     ...params,
-    width: clamp(params.width, CABINET_LIMITS.width.min, CABINET_LIMITS.width.max),
-    height: clamp(params.height, CABINET_LIMITS.height.min, CABINET_LIMITS.height.max),
-    depth: clamp(params.depth, CABINET_LIMITS.depth.min, CABINET_LIMITS.depth.max),
+    width: clamp(params.width, limits.width.min, limits.width.max),
+    height: clamp(params.height, limits.height.min, limits.height.max),
+    depth: clamp(params.depth, limits.depth.min, limits.depth.max),
   }
 }
+
+/** Данные пресета каталога, которых достаточно, чтобы создать блок. */
+export type NewBlock = { type: BlockType; elevation: number; params: BlockParams }
 
 type AppState = Project & {
   selection: Selection
   tool: Tool
   orthoSnap: boolean
+  snapToWalls: boolean
   viewMode: ViewMode
   editorView: EditorView
 
   setTool: (tool: Tool) => void
   setOrthoSnap: (enabled: boolean) => void
+  setSnapToWalls: (enabled: boolean) => void
   setViewMode: (mode: ViewMode) => void
   setEditorView: (view: EditorView) => void
   select: (selection: Selection) => void
@@ -73,11 +81,16 @@ type AppState = Project & {
   setWallHeight: (height: number) => void
   clearRoom: () => void
 
-  addCabinet: () => void
+  addBlock: (block: NewBlock) => void
+  /** Точное перемещение: из панели свойств и вида по высоте. */
   moveFurniture: (id: string, position: Point) => void
+  /** Перетаскивание на плане: применяет привязки к стенам и соседям. */
+  dropFurniture: (id: string, position: Point) => void
+  /** Перетаскивание в виде спереди: привязки по горизонтали и по высоте сразу. */
+  dropInSection: (id: string, x: number, elevation: number) => void
   elevateFurniture: (id: string, elevation: number) => void
   rotateFurniture: (id: string, rotation: number) => void
-  updateFurnitureParams: (id: string, patch: Partial<CabinetParams>) => void
+  updateFurnitureParams: (id: string, patch: Partial<BlockParams>) => void
   removeFurniture: (id: string) => void
 }
 
@@ -89,11 +102,13 @@ export const useAppStore = create<AppState>()(
       selection: null,
       tool: 'select',
       orthoSnap: true,
+      snapToWalls: true,
       viewMode: 'split',
       editorView: 'plan',
 
       setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : null }),
       setOrthoSnap: (orthoSnap) => set({ orthoSnap }),
+      setSnapToWalls: (snapToWalls) => set({ snapToWalls }),
       setViewMode: (viewMode) => set({ viewMode }),
       setEditorView: (editorView) => set({ editorView, tool: editorView === 'elevation' ? 'select' : get().tool }),
       select: (selection) => set({ selection }),
@@ -134,17 +149,17 @@ export const useAppStore = create<AppState>()(
 
       clearRoom: () => set({ room: { walls: [], wallHeight: get().room.wallHeight }, furniture: [], selection: null }),
 
-      addCabinet: () => {
+      addBlock: (block) => {
         const state = get()
         const polygon = roomPolygon(state.room.walls)
         const center = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
         const item: FurnitureItem = {
           id: newId(),
-          type: 'cabinet',
+          type: block.type,
           position: center,
-          elevation: 0,
+          elevation: block.elevation,
           rotation: 0,
-          params: { ...DEFAULT_CABINET },
+          params: clampParams(block.type, block.params),
         }
         set({ furniture: [...state.furniture, item], selection: { kind: 'furniture', id: item.id }, tool: 'select' })
       },
@@ -153,6 +168,50 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           furniture: state.furniture.map((item) => (item.id === id ? { ...item, position } : item)),
         })),
+
+      dropFurniture: (id, position) =>
+        set((state) => {
+          const item = state.furniture.find((candidate) => candidate.id === id)
+          if (!item) return state
+          const polygon = roomPolygon(state.room.walls)
+          const roomCenter = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
+          const others = state.furniture.filter((candidate) => candidate.id !== id)
+          const placement = placeBlock(item, position, state.room, others, roomCenter, state.snapToWalls)
+          // Блок, переехавший на столешницу, должен врезаться в неё и по высоте.
+          const moved = { ...item, position: placement.position, rotation: placement.rotation }
+          const elevation = state.snapToWalls ? snapElevation(moved, item.elevation, others) : item.elevation
+          return {
+            furniture: state.furniture.map((candidate) =>
+              candidate.id === id ? { ...moved, elevation } : candidate,
+            ),
+          }
+        }),
+
+      dropInSection: (id, x, elevation) =>
+        set((state) => {
+          const item = state.furniture.find((candidate) => candidate.id === id)
+          if (!item) return state
+          const polygon = roomPolygon(state.room.walls)
+          const roomCenter = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
+          const others = state.furniture.filter((candidate) => candidate.id !== id)
+          const placement = placeBlockInSection(
+            item,
+            x,
+            elevation,
+            state.room,
+            others,
+            roomCenter,
+            state.snapToWalls,
+          )
+          const limited = clamp(placement.elevation, 0, Math.max(0, state.room.wallHeight - item.params.height))
+          return {
+            furniture: state.furniture.map((candidate) =>
+              candidate.id === id
+                ? { ...candidate, position: placement.position, rotation: placement.rotation, elevation: limited }
+                : candidate,
+            ),
+          }
+        }),
 
       elevateFurniture: (id, elevation) =>
         set((state) => ({
@@ -176,7 +235,7 @@ export const useAppStore = create<AppState>()(
       updateFurnitureParams: (id, patch) =>
         set((state) => ({
           furniture: state.furniture.map((item) =>
-            item.id === id ? { ...item, params: clampParams({ ...item.params, ...patch }) } : item,
+            item.id === id ? { ...item, params: clampParams(item.type, { ...item.params, ...patch }) } : item,
           ),
         })),
 
