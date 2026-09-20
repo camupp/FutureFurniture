@@ -25,8 +25,9 @@ function overlapsByHeight(a: FurnitureItem, b: FurnitureItem): boolean {
 /** Пересечение двух повёрнутых прямоугольников — теорема о разделяющей оси. */
 export function footprintsOverlap(a: Point[], b: Point[]): boolean {
   for (const corners of [a, b]) {
-    for (let i = 0; i < 2; i++) {
-      const edge = { x: corners[i + 1].x - corners[i].x, y: corners[i + 1].y - corners[i].y }
+    for (let i = 0; i < corners.length; i++) {
+      const next = (i + 1) % corners.length
+      const edge = { x: corners[next].x - corners[i].x, y: corners[next].y - corners[i].y }
       const length = Math.hypot(edge.x, edge.y) || 1
       const axis = { x: -edge.y / length, y: edge.x / length }
       const extentA = projectExtent(a, axis)

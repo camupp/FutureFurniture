@@ -2,26 +2,37 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import {
   BLOCK_LIMITS,
+  OPENING_DEFAULTS,
+  OPENING_LIMITS,
   projectSchema,
+  UTILITY_DEFAULT_HEIGHT,
   WALL_LIMITS,
   type BlockParams,
   type BlockType,
   type FurnitureItem,
+  type Opening,
+  type OpeningType,
   type Point,
   type Project,
   type Room,
+  type Utility,
+  type UtilityMount,
+  type UtilityType,
   type Wall,
 } from './types'
 import { snapElevation } from './utils/elevation'
-import { bounds, roomPolygon, setWallLength } from './utils/geometry'
+import { bounds, roomPolygon, setWallLength, wallLength } from './utils/geometry'
+import { normalizeOpening } from './utils/openings'
 import { placeBlock, placeBlockInSection } from './utils/snapping'
 import { clamp } from './utils/units'
+import { moveUtilityToPoint, normalizeUtility, utilityPoint } from './utils/utilities'
 
-export type Tool = 'select' | 'wall' | 'pan'
+export type Tool = 'select' | 'wall' | 'window' | 'door' | 'utility' | 'pan'
 export type ViewMode = '2d' | 'split' | '3d'
 /** Что показывает 2D-холст: план сверху или вид по высоте. */
 export type EditorView = 'plan' | 'elevation'
-export type Selection = { kind: 'wall'; id: string } | { kind: 'furniture'; id: string } | null
+export type SelectionKind = 'wall' | 'furniture' | 'opening' | 'utility'
+export type Selection = { kind: SelectionKind; id: string } | null
 
 const DEFAULT_WALL_THICKNESS = 100
 const DEFAULT_WALL_HEIGHT = 2700
@@ -43,7 +54,7 @@ function createDefaultRoom(): Room {
     end: corners[(i + 1) % corners.length],
     thickness: DEFAULT_WALL_THICKNESS,
   }))
-  return { walls, wallHeight: DEFAULT_WALL_HEIGHT }
+  return { walls, wallHeight: DEFAULT_WALL_HEIGHT, openings: [], utilities: [] }
 }
 
 function clampParams(type: BlockType, params: BlockParams): BlockParams {
@@ -63,13 +74,16 @@ type AppState = Project & {
   selection: Selection
   tool: Tool
   orthoSnap: boolean
-  snapToWalls: boolean
+  smartPlacement: boolean
   viewMode: ViewMode
   editorView: EditorView
+  /** Какой вывод ставит инструмент «Коммуникация». */
+  utilityType: UtilityType
 
   setTool: (tool: Tool) => void
+  setUtilityType: (type: UtilityType) => void
   setOrthoSnap: (enabled: boolean) => void
-  setSnapToWalls: (enabled: boolean) => void
+  setSmartPlacement: (enabled: boolean) => void
   setViewMode: (mode: ViewMode) => void
   setEditorView: (view: EditorView) => void
   select: (selection: Selection) => void
@@ -80,6 +94,16 @@ type AppState = Project & {
   removeWall: (id: string) => void
   setWallHeight: (height: number) => void
   clearRoom: () => void
+
+  addOpening: (wallId: string, offset: number, type: OpeningType) => void
+  moveOpening: (id: string, offset: number) => void
+  updateOpening: (id: string, patch: Partial<Omit<Opening, 'id' | 'wallId'>>) => void
+  removeOpening: (id: string) => void
+
+  addUtility: (point: Point, type: UtilityType, mount?: UtilityMount) => void
+  moveUtility: (id: string, point: Point) => void
+  updateUtility: (id: string, patch: Partial<Omit<Utility, 'id'>>) => void
+  removeUtility: (id: string) => void
 
   addBlock: (block: NewBlock) => void
   /** Точное перемещение: из панели свойств и вида по высоте. */
@@ -102,13 +126,15 @@ export const useAppStore = create<AppState>()(
       selection: null,
       tool: 'select',
       orthoSnap: true,
-      snapToWalls: true,
+      smartPlacement: true,
       viewMode: 'split',
       editorView: 'plan',
+      utilityType: 'water',
 
       setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : null }),
+      setUtilityType: (utilityType) => set({ utilityType, tool: 'utility' }),
       setOrthoSnap: (orthoSnap) => set({ orthoSnap }),
-      setSnapToWalls: (snapToWalls) => set({ snapToWalls }),
+      setSmartPlacement: (smartPlacement) => set({ smartPlacement }),
       setViewMode: (viewMode) => set({ viewMode }),
       setEditorView: (editorView) => set({ editorView, tool: editorView === 'elevation' ? 'select' : get().tool }),
       select: (selection) => set({ selection }),
@@ -122,7 +148,24 @@ export const useAppStore = create<AppState>()(
         })),
 
       updateWallLength: (id, length) =>
-        set((state) => ({ room: { ...state.room, walls: setWallLength(state.room.walls, id, length) } })),
+        set((state) => {
+          const widestOpening = state.room.openings
+            .filter((opening) => opening.wallId === id)
+            .reduce((widest, opening) => Math.max(widest, opening.width), 0)
+          const walls = setWallLength(state.room.walls, id, Math.max(length, widestOpening))
+          const wall = walls.find((candidate) => candidate.id === id)
+          const openings = wall
+            ? state.room.openings.map((opening) =>
+                opening.wallId === id ? normalizeOpening(opening, wall, state.room.wallHeight) : opening,
+              )
+            : state.room.openings
+          const nextRoom = { ...state.room, walls, openings }
+          const utilities = state.room.utilities.flatMap((utility) => {
+            const normalized = normalizeUtility(utility, nextRoom)
+            return normalized ? [normalized] : []
+          })
+          return { room: { ...nextRoom, utilities } }
+        }),
 
       updateWallThickness: (id, thickness) =>
         set((state) => ({
@@ -138,16 +181,159 @@ export const useAppStore = create<AppState>()(
 
       removeWall: (id) =>
         set((state) => ({
-          room: { ...state.room, walls: state.room.walls.filter((wall) => wall.id !== id) },
-          selection: state.selection?.id === id ? null : state.selection,
+          room: {
+            ...state.room,
+            walls: state.room.walls.filter((wall) => wall.id !== id),
+            openings: state.room.openings.filter((opening) => opening.wallId !== id),
+            utilities: state.room.utilities.filter(
+              (utility) => utility.mount.kind !== 'wall' || utility.mount.wallId !== id,
+            ),
+          },
+          selection:
+            state.selection?.id === id ||
+            (state.selection?.kind === 'opening' &&
+              state.room.openings.some((opening) => opening.id === state.selection?.id && opening.wallId === id)) ||
+            (state.selection?.kind === 'utility' &&
+              state.room.utilities.some(
+                (utility) =>
+                  utility.id === state.selection?.id &&
+                  utility.mount.kind === 'wall' &&
+                  utility.mount.wallId === id,
+              ))
+              ? null
+              : state.selection,
         })),
 
       setWallHeight: (height) =>
+        set((state) => {
+          const wallHeight = clamp(height, WALL_LIMITS.height.min, WALL_LIMITS.height.max)
+          return {
+            room: {
+              ...state.room,
+              wallHeight,
+              openings: state.room.openings.flatMap((opening) => {
+                const wall = state.room.walls.find((candidate) => candidate.id === opening.wallId)
+                return wall ? [normalizeOpening(opening, wall, wallHeight)] : []
+              }),
+              utilities: state.room.utilities.map((utility) => ({
+                ...utility,
+                height: clamp(utility.height, 0, wallHeight),
+              })),
+            },
+          }
+        }),
+
+      clearRoom: () =>
+        set({
+          room: { walls: [], wallHeight: get().room.wallHeight, openings: [], utilities: [] },
+          furniture: [],
+          selection: null,
+        }),
+
+      addOpening: (wallId, offset, type) => {
+        set((state) => {
+          const wall = state.room.walls.find((candidate) => candidate.id === wallId)
+          if (!wall || wallLength(wall) < OPENING_LIMITS.width.min) return state
+          const opening: Opening = normalizeOpening(
+            {
+              id: newId(),
+              wallId,
+              type,
+              offset,
+              hinge: 'left',
+              ...OPENING_DEFAULTS[type],
+            },
+            wall,
+            state.room.wallHeight,
+          )
+          return {
+            room: { ...state.room, openings: [...state.room.openings, opening] },
+            selection: { kind: 'opening', id: opening.id },
+            tool: 'select',
+          }
+        })
+      },
+
+      moveOpening: (id, offset) =>
         set((state) => ({
-          room: { ...state.room, wallHeight: clamp(height, WALL_LIMITS.height.min, WALL_LIMITS.height.max) },
+          room: {
+            ...state.room,
+            openings: state.room.openings.map((opening) => {
+              if (opening.id !== id) return opening
+              const wall = state.room.walls.find((candidate) => candidate.id === opening.wallId)
+              return wall
+                ? normalizeOpening({ ...opening, offset: Math.round(offset) }, wall, state.room.wallHeight)
+                : opening
+            }),
+          },
         })),
 
-      clearRoom: () => set({ room: { walls: [], wallHeight: get().room.wallHeight }, furniture: [], selection: null }),
+      updateOpening: (id, patch) =>
+        set((state) => ({
+          room: {
+            ...state.room,
+            openings: state.room.openings.map((opening) => {
+              if (opening.id !== id) return opening
+              const wall = state.room.walls.find((candidate) => candidate.id === opening.wallId)
+              return wall ? normalizeOpening({ ...opening, ...patch }, wall, state.room.wallHeight) : opening
+            }),
+          },
+        })),
+
+      removeOpening: (id) =>
+        set((state) => ({
+          room: { ...state.room, openings: state.room.openings.filter((opening) => opening.id !== id) },
+          selection: state.selection?.id === id ? null : state.selection,
+        })),
+
+      addUtility: (point, type, mount = { kind: 'floor' }) => {
+        const utility: Utility = {
+          id: newId(),
+          type,
+          point: { x: Math.round(point.x), y: Math.round(point.y) },
+          mount,
+          height: Math.min(mount.kind === 'floor' ? 0 : UTILITY_DEFAULT_HEIGHT[type], get().room.wallHeight),
+        }
+        const placed = normalizeUtility(utility, get().room) ?? utility
+        set((state) => ({
+          room: { ...state.room, utilities: [...state.room.utilities, placed] },
+          selection: { kind: 'utility', id: placed.id },
+          tool: 'select',
+        }))
+      },
+
+      moveUtility: (id, point) =>
+        set((state) => ({
+          room: {
+            ...state.room,
+            utilities: state.room.utilities.map((utility) =>
+              utility.id === id ? moveUtilityToPoint(utility, point, state.room) : utility,
+            ),
+          },
+        })),
+
+      updateUtility: (id, patch) =>
+        set((state) => ({
+          room: {
+            ...state.room,
+            utilities: state.room.utilities.flatMap((utility) => {
+              if (utility.id !== id) return [utility]
+              const next = {
+                ...utility,
+                ...patch,
+                height: clamp(patch.height ?? utility.height, 0, state.room.wallHeight),
+              }
+              const normalized = normalizeUtility(next, state.room)
+              return normalized ? [normalized] : []
+            }),
+          },
+        })),
+
+      removeUtility: (id) =>
+        set((state) => ({
+          room: { ...state.room, utilities: state.room.utilities.filter((utility) => utility.id !== id) },
+          selection: state.selection?.id === id ? null : state.selection,
+        })),
 
       addBlock: (block) => {
         const state = get()
@@ -176,10 +362,10 @@ export const useAppStore = create<AppState>()(
           const polygon = roomPolygon(state.room.walls)
           const roomCenter = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
           const others = state.furniture.filter((candidate) => candidate.id !== id)
-          const placement = placeBlock(item, position, state.room, others, roomCenter, state.snapToWalls)
+          const placement = placeBlock(item, position, state.room, others, roomCenter, state.smartPlacement)
           // Блок, переехавший на столешницу, должен врезаться в неё и по высоте.
           const moved = { ...item, position: placement.position, rotation: placement.rotation }
-          const elevation = state.snapToWalls ? snapElevation(moved, item.elevation, others) : item.elevation
+          const elevation = state.smartPlacement ? snapElevation(moved, item.elevation, others) : item.elevation
           return {
             furniture: state.furniture.map((candidate) =>
               candidate.id === id ? { ...moved, elevation } : candidate,
@@ -201,7 +387,7 @@ export const useAppStore = create<AppState>()(
             state.room,
             others,
             roomCenter,
-            state.snapToWalls,
+            state.smartPlacement,
           )
           const limited = clamp(placement.elevation, 0, Math.max(0, state.room.wallHeight - item.params.height))
           return {
@@ -252,7 +438,23 @@ export const useAppStore = create<AppState>()(
         const parsed = projectSchema.safeParse(persisted)
         if (!parsed.success) return current
         const viewMode = (persisted as { viewMode?: ViewMode }).viewMode
-        return { ...current, ...parsed.data, viewMode: viewMode ?? current.viewMode }
+        const room = parsed.data.room
+        const openings = room.openings.flatMap((opening) => {
+          const wall = room.walls.find((candidate) => candidate.id === opening.wallId)
+          return wall && wallLength(wall) >= OPENING_LIMITS.width.min
+            ? [normalizeOpening(opening, wall, room.wallHeight)]
+            : []
+        })
+        const utilities = room.utilities.flatMap((utility) => {
+          const normalized = normalizeUtility(utility, room)
+          return normalized ? [{ ...normalized, point: utilityPoint(normalized, room) }] : []
+        })
+        return {
+          ...current,
+          ...parsed.data,
+          room: { ...room, openings, utilities },
+          viewMode: viewMode ?? current.viewMode,
+        }
       },
     },
   ),
@@ -266,4 +468,14 @@ export const selectedFurniture = (state: AppState) =>
 export const selectedWall = (state: AppState) =>
   state.selection?.kind === 'wall'
     ? (state.room.walls.find((wall) => wall.id === state.selection!.id) ?? null)
+    : null
+
+export const selectedOpening = (state: AppState) =>
+  state.selection?.kind === 'opening'
+    ? (state.room.openings.find((opening) => opening.id === state.selection!.id) ?? null)
+    : null
+
+export const selectedUtility = (state: AppState) =>
+  state.selection?.kind === 'utility'
+    ? (state.room.utilities.find((utility) => utility.id === state.selection!.id) ?? null)
     : null

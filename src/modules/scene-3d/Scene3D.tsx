@@ -5,7 +5,13 @@ import type * as THREE from 'three'
 import { useAppStore } from '../../shared/store'
 import { bounds, roomPolygon } from '../../shared/utils/geometry'
 import { degToRad, mmToM } from '../../shared/utils/units'
-import { invalidItemIds } from '../validation/rules'
+import {
+  connectedUtilityIds,
+  invalidItemIds,
+  invalidOpeningIds,
+  invalidUtilityIds,
+  warningItemIds,
+} from '../validation/rules'
 import { FurnitureMesh } from './FurnitureMesh'
 import { RoomMesh } from './RoomMesh'
 import { sceneCanvas } from './screenshot'
@@ -18,6 +24,10 @@ export function Scene3D() {
   const [fitKey, setFitKey] = useState(0)
 
   const invalid = useMemo(() => invalidItemIds(furniture, room), [furniture, room])
+  const warnings = useMemo(() => warningItemIds(furniture, room), [furniture, room])
+  const connectedUtilities = useMemo(() => connectedUtilityIds(furniture, room), [furniture, room])
+  const invalidOpenings = useMemo(() => invalidOpeningIds(room), [room])
+  const invalidUtilities = useMemo(() => invalidUtilityIds(room), [room])
   const box = useMemo(() => bounds(roomPolygon(room.walls)), [room.walls])
   const target: [number, number, number] = [mmToM(box.center.x), mmToM(room.wallHeight) / 2, mmToM(box.center.y)]
   /** Радиус описанной сферы помещения — по нему считается отлёт камеры. */
@@ -56,7 +66,16 @@ export function Scene3D() {
           shadow-normalBias={0.02}
         />
 
-        <RoomMesh room={room} />
+        <RoomMesh
+          room={room}
+          selectedOpeningId={selection?.kind === 'opening' ? selection.id : undefined}
+          selectedUtilityId={selection?.kind === 'utility' ? selection.id : undefined}
+          invalidOpeningIds={invalidOpenings}
+          invalidUtilityIds={invalidUtilities}
+          connectedUtilityIds={connectedUtilities}
+          onSelectOpening={(id) => select({ kind: 'opening', id })}
+          onSelectUtility={(id) => select({ kind: 'utility', id })}
+        />
         {furniture.map((item) => (
           <FurnitureMesh
             key={item.id}
@@ -64,6 +83,7 @@ export function Scene3D() {
             others={furniture}
             selected={selection?.kind === 'furniture' && selection.id === item.id}
             invalid={invalid.has(item.id)}
+            warning={warnings.has(item.id)}
             onSelect={() => select({ kind: 'furniture', id: item.id })}
           />
         ))}

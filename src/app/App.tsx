@@ -1,4 +1,5 @@
 import { useAppStore, type EditorView, type Tool, type ViewMode } from '../shared/store'
+import { UTILITY_COLORS, UTILITY_LABELS, UTILITY_TYPES } from '../shared/types'
 import { ElevationEditor } from '../modules/elevation-editor/ElevationEditor'
 import { LibraryPanel } from '../modules/furniture-library/LibraryPanel'
 import { PropertiesPanel } from '../modules/properties/PropertiesPanel'
@@ -9,6 +10,9 @@ import { downloadSceneScreenshot } from '../modules/scene-3d/screenshot'
 const TOOLS: { value: Tool; label: string }[] = [
   { value: 'select', label: 'Выбрать' },
   { value: 'wall', label: 'Стена' },
+  { value: 'window', label: 'Окно' },
+  { value: 'door', label: 'Дверь' },
+  { value: 'utility', label: 'Коммуникация' },
   { value: 'pan', label: 'Панорама' },
 ]
 
@@ -28,8 +32,10 @@ export function App() {
   const setTool = useAppStore((s) => s.setTool)
   const ortho = useAppStore((s) => s.orthoSnap)
   const setOrthoSnap = useAppStore((s) => s.setOrthoSnap)
-  const snapToWalls = useAppStore((s) => s.snapToWalls)
-  const setSnapToWalls = useAppStore((s) => s.setSnapToWalls)
+  const smartPlacement = useAppStore((s) => s.smartPlacement)
+  const setSmartPlacement = useAppStore((s) => s.setSmartPlacement)
+  const utilityType = useAppStore((s) => s.utilityType)
+  const setUtilityType = useAppStore((s) => s.setUtilityType)
   const viewMode = useAppStore((s) => s.viewMode)
   const setViewMode = useAppStore((s) => s.setViewMode)
   const editorView = useAppStore((s) => s.editorView)
@@ -37,7 +43,7 @@ export function App() {
   const clearRoom = useAppStore((s) => s.clearRoom)
 
   const handleClear = () => {
-    if (confirm('Удалить все стены и блоки проекта?')) clearRoom()
+    if (confirm('Удалить все стены, проёмы, выводы и блоки проекта?')) clearRoom()
   }
 
   return (
@@ -81,6 +87,29 @@ export function App() {
                 </button>
               ))}
             </div>
+            {tool === 'utility' && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {UTILITY_TYPES.map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setUtilityType(type)}
+                    className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                      utilityType === type
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: UTILITY_COLORS[type] }}
+                    />
+                    {UTILITY_LABELS[type]}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
               <input
                 type="checkbox"
@@ -90,14 +119,17 @@ export function App() {
               />
               Углы 90°
             </label>
-            <label className="mt-1.5 flex items-center gap-2 text-sm text-slate-600">
+            <label
+              className="mt-1.5 flex items-center gap-2 text-sm text-slate-600"
+              title="Привязка к стенам и соседям, автоматический обход мебели, окон и зоны открывания дверей"
+            >
               <input
                 type="checkbox"
-                checked={snapToWalls}
-                onChange={(e) => setSnapToWalls(e.target.checked)}
+                checked={smartPlacement}
+                onChange={(e) => setSmartPlacement(e.target.checked)}
                 className="h-4 w-4 accent-blue-600"
               />
-              Магнит к стенам
+              Умная расстановка
             </label>
           </section>
 

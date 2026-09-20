@@ -1,14 +1,16 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef } from 'react'
-import { Group, Label, Layer, Line, Rect, Stage, Tag, Text } from 'react-konva'
+import { Circle, Group, Label, Layer, Line, Rect, Stage, Tag, Text } from 'react-konva'
 import type Konva from 'konva'
 import { useAppStore } from '../../shared/store'
-import type { FurnitureItem } from '../../shared/types'
+import { OPENING_LABELS, UTILITY_COLORS, UTILITY_LABELS, type FurnitureItem } from '../../shared/types'
 import { bounds, itemFootprint, roomPolygon } from '../../shared/utils/geometry'
+import { openingFrame } from '../../shared/utils/openings'
 import { placeBlockInSection } from '../../shared/utils/snapping'
 import { clamp } from '../../shared/utils/units'
 import { useElementSize } from '../../shared/utils/useElementSize'
 import { useStageViewport } from '../../shared/utils/useStageViewport'
-import { invalidItemIds } from '../validation/rules'
+import { utilityPoint } from '../../shared/utils/utilities'
+import { connectedUtilityIds, invalidItemIds, invalidUtilityIds, warningItemIds } from '../validation/rules'
 
 const HEIGHT_GUIDE_STEP = 500
 
@@ -27,12 +29,25 @@ export function ElevationEditor() {
   const tool = useAppStore((s) => s.tool)
   const selection = useAppStore((s) => s.selection)
   const select = useAppStore((s) => s.select)
-  const snapToWalls = useAppStore((s) => s.snapToWalls)
+  const smartPlacement = useAppStore((s) => s.smartPlacement)
   const dropInSection = useAppStore((s) => s.dropInSection)
+  const moveUtility = useAppStore((s) => s.moveUtility)
+  const updateUtility = useAppStore((s) => s.updateUtility)
 
-  const { view, fitTo, zoomBy, handleWheel, handleStageDragEnd } = useStageViewport(width, height)
+  const {
+    view,
+    fitTo,
+    zoomBy,
+    handleWheel,
+    handleStageDragEnd,
+    handleTouchMove,
+    handleTouchEnd,
+  } = useStageViewport(width, height)
 
   const invalid = useMemo(() => invalidItemIds(furniture, room), [furniture, room])
+  const warnings = useMemo(() => warningItemIds(furniture, room), [furniture, room])
+  const invalidUtilities = useMemo(() => invalidUtilityIds(room), [room])
+  const connectedUtilities = useMemo(() => connectedUtilityIds(furniture, room), [furniture, room])
   const roomBox = useMemo(() => bounds(roomPolygon(room.walls)), [room.walls])
 
   const fitPoints = useMemo(
@@ -70,9 +85,25 @@ export function ElevationEditor() {
         room,
         furniture.filter((other) => other.id !== item.id),
         roomBox.center,
-        snapToWalls,
+        smartPlacement,
       ),
-    [room, furniture, roomBox.center, snapToWalls],
+    [room, furniture, roomBox.center, smartPlacement],
+  )
+
+  /**
+   * Проёмы фронтальных стен — тех, что вытянуты вдоль оси X. Боковые стены этот вид
+   * не представляет, их проёмы показывать бессмысленно: они лягут поперёк картинки.
+   */
+  const projectedOpenings = useMemo(
+    () =>
+      room.openings.flatMap((opening) => {
+        const frame = openingFrame(opening, room)
+        if (!frame || Math.abs(frame.axis.y) > 0.3) return []
+        const minX = Math.min(frame.start.x, frame.end.x)
+        const maxX = Math.max(frame.start.x, frame.end.x)
+        return [{ opening, minX, maxX }]
+      }),
+    [room],
   )
 
   const guides = useMemo(() => {
@@ -95,6 +126,8 @@ export function ElevationEditor() {
           draggable={tool === 'pan'}
           onDragEnd={handleStageDragEnd}
           onWheel={handleWheel}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           onMouseDown={(e) => {
             if (tool === 'select' && e.target === e.target.getStage()) select(null)
           }}
@@ -132,12 +165,100 @@ export function ElevationEditor() {
                 </Label>
               </Fragment>
             ))}
+
+            {projectedOpenings.map(({ opening, minX, maxX }) => (
+              <Fragment key={opening.id}>
+                <Rect
+                  x={minX}
+                  y={-(opening.sill + opening.height)}
+                  width={maxX - minX}
+                  height={opening.height}
+                  fill="#eff6ff"
+                  stroke="#0f172a"
+                  strokeWidth={1.5}
+                  dash={[14, 8]}
+                  strokeScaleEnabled={false}
+                />
+                <Label
+                  x={(minX + maxX) / 2}
+                  y={-(opening.sill + opening.height)}
+                  scaleX={1 / view.scale}
+                  scaleY={1 / view.scale}
+                  offsetX={30}
+                  offsetY={16}
+                >
+                  <Tag fill="#ffffff" opacity={0.9} cornerRadius={3} />
+                  <Text
+                    text={OPENING_LABELS[opening.type]}
+                    fontSize={11}
+                    padding={3}
+                    width={60}
+                    align="center"
+                    fill="#0f172a"
+                  />
+                </Label>
+              </Fragment>
+            ))}
           </Layer>
 
           <Layer>
+            {room.utilities.map((utility) => {
+              const point = utilityPoint(utility, room)
+              const selected = selection?.kind === 'utility' && selection.id === utility.id
+              const isInvalid = invalidUtilities.has(utility.id)
+              const isConnected = connectedUtilities.has(utility.id)
+              const color = UTILITY_COLORS[utility.type]
+
+              return (
+                <Group
+                  key={utility.id}
+                  x={point.x}
+                  y={-utility.height}
+                  draggable={tool === 'select'}
+                  dragBoundFunc={(pos) => ({
+                    x: pos.x,
+                    y:
+                      utility.mount.kind === 'floor'
+                        ? view.y
+                        : clamp(pos.y, view.y - room.wallHeight * view.scale, view.y),
+                  })}
+                  onMouseDown={() => tool === 'select' && select({ kind: 'utility', id: utility.id })}
+                  onTouchStart={() => tool === 'select' && select({ kind: 'utility', id: utility.id })}
+                  onDragEnd={(e) => {
+                    moveUtility(utility.id, { ...point, x: Math.round(e.target.x()) })
+                    if (utility.mount.kind === 'wall') {
+                      updateUtility(utility.id, { height: Math.round(clamp(-e.target.y(), 0, room.wallHeight)) })
+                    }
+                  }}
+                >
+                  <Circle
+                    radius={10 / view.scale}
+                    fill={isInvalid ? '#fee2e2' : '#ffffff'}
+                    stroke={isInvalid ? '#dc2626' : selected ? '#2563eb' : isConnected ? '#059669' : color}
+                    strokeWidth={selected ? 3 : 2}
+                    strokeScaleEnabled={false}
+                  />
+                  <Circle radius={4 / view.scale} fill={color} listening={false} />
+                  <Label
+                    x={0}
+                    y={0}
+                    scaleX={1 / view.scale}
+                    scaleY={1 / view.scale}
+                    offsetX={-14}
+                    offsetY={10}
+                    listening={false}
+                  >
+                    <Tag fill="#ffffff" opacity={0.9} cornerRadius={3} />
+                    <Text text={UTILITY_LABELS[utility.type]} fontSize={11} padding={3} fill="#0f172a" />
+                  </Label>
+                </Group>
+              )
+            })}
+
             {projected.map(({ item, extent }) => {
               const selected = selection?.kind === 'furniture' && selection.id === item.id
               const isInvalid = invalid.has(item.id)
+              const hasWarning = warnings.has(item.id)
               const blockHeight = item.params.height
               const maxElevation = Math.max(0, room.wallHeight - blockHeight)
 
@@ -176,9 +297,9 @@ export function ElevationEditor() {
                     y={-blockHeight}
                     width={extent}
                     height={blockHeight}
-                    fill={isInvalid ? '#fee2e2' : item.params.facadeColor}
+                    fill={isInvalid ? '#fee2e2' : hasWarning ? '#fef3c7' : item.params.facadeColor}
                     opacity={0.95}
-                    stroke={isInvalid ? '#dc2626' : selected ? '#2563eb' : '#334155'}
+                    stroke={isInvalid ? '#dc2626' : hasWarning ? '#d97706' : selected ? '#2563eb' : '#334155'}
                     strokeWidth={selected ? 2.5 : 1.5}
                     strokeScaleEnabled={false}
                   />
@@ -211,8 +332,8 @@ export function ElevationEditor() {
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
         <span className="rounded-md bg-white/90 px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm">
           {tool === 'pan'
-            ? 'Тяните холст для перемещения'
-            : 'Вид спереди · тяните блок вверх-вниз, чтобы поднять его над полом'}
+            ? 'Тяните холст для перемещения · щипок — масштаб'
+            : 'Вид спереди · тяните блоки и выводы по высоте · щипок — масштаб'}
         </span>
         <div className="pointer-events-auto flex gap-1">
           <ViewButton onClick={() => zoomBy(1.25)} label="+" />

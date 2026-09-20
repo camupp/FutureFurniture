@@ -1,7 +1,8 @@
-import type { FurnitureItem, Point, Room, Wall } from '../types'
-import { blocksOverlap, projectExtent } from './collision'
+import type { FurnitureItem, Opening, Point, Room, Wall } from '../types'
+import { blocksOverlap, footprintsOverlap, projectExtent } from './collision'
 import { snapElevation } from './elevation'
 import { distance, itemFootprint, rotatePoint, snap, snapPoint, wallAngle, wallLength } from './geometry'
+import { inwardWallNormal, openingObstaclePolygons } from './openings'
 
 /** На сколько мм от задней грани блока ловится стена. */
 const WALL_GRAB = 350
@@ -12,13 +13,21 @@ const ALIGN_TOLERANCE_DEG = 1
 /** Разница высот установки, в пределах которой блоки считаются одним рядом. */
 const SAME_ROW_TOLERANCE = 50
 /** Сколько раз пытаться вытолкнуть блок из пересечения, прежде чем сдаться. */
-const RESOLVE_STEPS = 6
+const RESOLVE_STEPS = 8
 const GRID_STEP = 10
 
 export type Placement = { position: Point; rotation: number }
 
 /** Посадка на стену вместе с её системой координат: ось вдоль стены и нормаль внутрь. */
-type WallFit = { placement: Placement; origin: Point; axis: Point; normal: Point; offset: number }
+type WallFit = {
+  placement: Placement
+  origin: Point
+  axis: Point
+  normal: Point
+  offset: number
+  minAlong: number
+  maxAlong: number
+}
 
 /** Приводит угол к [0, 360) и убирает хвост после округлений. */
 function normalizeAngle(deg: number): number {
@@ -48,18 +57,6 @@ function closestPointOnSegment(p: Point, a: Point, b: Point): Point {
   return { x: a.x + dx * t, y: a.y + dy * t }
 }
 
-/** Нормаль стены, направленная внутрь помещения. */
-function inwardNormal(wall: Wall, roomCenter: Point): Point {
-  const dx = wall.end.x - wall.start.x
-  const dy = wall.end.y - wall.start.y
-  const length = Math.hypot(dx, dy) || 1
-  const normal = { x: -dy / length, y: dx / length }
-  const center = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 }
-  const toCenter = { x: roomCenter.x - center.x, y: roomCenter.y - center.y }
-  const sign = normal.x * toCenter.x + normal.y * toCenter.y >= 0 ? 1 : -1
-  return { x: normal.x * sign, y: normal.y * sign }
-}
-
 /**
  * Ставит блок задней стенкой к ближайшей стене и разворачивает по ней.
  * Возвращает null, если подходящей стены рядом нет.
@@ -76,7 +73,7 @@ function snapToWall(item: FurnitureItem, position: Point, room: Room, roomCenter
   }
   if (!best) return null
 
-  const normal = inwardNormal(best.wall, roomCenter)
+  const normal = inwardWallNormal(best.wall, roomCenter)
   const offset = best.wall.thickness / 2 + item.params.depth / 2
   const angle = wallAngle(best.wall)
   const axis = { x: Math.cos(angle), y: Math.sin(angle) }
@@ -97,6 +94,8 @@ function snapToWall(item: FurnitureItem, position: Point, room: Room, roomCenter
     axis,
     normal,
     offset,
+    minAlong: half,
+    maxAlong: Math.max(half, length - half),
   }
 }
 
@@ -106,12 +105,54 @@ function snapToWall(item: FurnitureItem, position: Point, room: Room, roomCenter
  * от стены — после них положение поперёк стены восстанавливается.
  */
 function keepOnWall(position: Point, fit: WallFit): Point {
-  const along =
+  const rawAlong =
     (position.x - fit.origin.x) * fit.axis.x + (position.y - fit.origin.y) * fit.axis.y
+  const along = Math.min(Math.max(rawAlong, fit.minAlong), fit.maxAlong)
   return {
     x: fit.origin.x + fit.axis.x * along + fit.normal.x * fit.offset,
     y: fit.origin.y + fit.axis.y * along + fit.normal.y * fit.offset,
   }
+}
+
+function overlapsOpeningHeight(item: FurnitureItem, opening: Opening): boolean {
+  const itemTop = item.elevation + item.params.height
+  const openingTop = opening.sill + opening.height
+  return item.elevation < openingTop && opening.sill < itemTop
+}
+
+/**
+ * Выталкивает мебель из полосы окна/двери и сектора открывания двери.
+ * Сдвиг идёт вдоль ширины блока, поэтому пристенная мебель остаётся в своём ряду.
+ */
+function resolveOpeningOverlap(
+  item: FurnitureItem,
+  placement: Placement,
+  room: Room,
+  roomCenter: Point,
+): Placement {
+  const axis = widthAxis(placement.rotation)
+  const half = item.params.width / 2
+  let position = placement.position
+
+  const obstacles = room.openings.flatMap((opening) =>
+    overlapsOpeningHeight(item, opening) ? openingObstaclePolygons(opening, room, roomCenter) : [],
+  )
+
+  for (let step = 0; step < RESOLVE_STEPS; step++) {
+    const candidate: FurnitureItem = { ...item, position, rotation: placement.rotation }
+    const blocker = obstacles.find((area) => footprintsOverlap(itemFootprint(candidate), area))
+    if (!blocker) break
+
+    const blockerExtent = projectExtent(blocker, axis)
+    const center = position.x * axis.x + position.y * axis.y
+    const before = blockerExtent.min - half
+    const after = blockerExtent.max + half
+    const target = Math.abs(before - center) <= Math.abs(after - center) ? before : after
+    const shift = target - center
+    position = { x: position.x + axis.x * shift, y: position.y + axis.y * shift }
+  }
+
+  return { position, rotation: placement.rotation }
 }
 
 /**
@@ -190,7 +231,13 @@ export function placeBlock(
   const base: Placement = wallFit?.placement ?? { position, rotation: item.rotation }
   const neighbour = snapToNeighbour(item, base, others)
   const aligned = neighbour ?? { position: snapPoint(base.position, GRID_STEP), rotation: base.rotation }
-  const resolved = resolveOverlap(item, aligned, others)
+  let resolved = aligned
+  // Вытеснение из проёма может привести к соседу и наоборот, поэтому даём
+  // двум системам ограничений несколько коротких проходов для стабилизации.
+  for (let pass = 0; pass < 3; pass++) {
+    resolved = resolveOverlap(item, resolved, others)
+    resolved = resolveOpeningOverlap(item, resolved, room, roomCenter)
+  }
 
   return {
     position: wallFit ? keepOnWall(resolved.position, wallFit) : resolved.position,

@@ -7,6 +7,7 @@ type Props = {
   item: FurnitureItem
   selected: boolean
   invalid: boolean
+  warning: boolean
   draggable: boolean
   scale: number
   onSelect: () => void
@@ -19,6 +20,7 @@ export function FurnitureShape({
   item,
   selected,
   invalid,
+  warning,
   draggable,
   scale,
   onSelect,
@@ -26,7 +28,7 @@ export function FurnitureShape({
   resolve,
 }: Props) {
   const { width, depth, facadeColor } = item.params
-  const stroke = invalid ? '#dc2626' : selected ? '#2563eb' : '#334155'
+  const stroke = invalid ? '#dc2626' : warning ? '#d97706' : selected ? '#2563eb' : '#334155'
 
   /**
    * Блок притягивается прямо под курсором, а не прыгает после отпускания.
@@ -65,7 +67,7 @@ export function FurnitureShape({
         y={-depth / 2}
         width={width}
         height={depth}
-        fill={invalid ? '#fee2e2' : facadeColor}
+        fill={invalid ? '#fee2e2' : warning ? '#fef3c7' : facadeColor}
         opacity={0.9}
         stroke={stroke}
         strokeWidth={selected ? 2.5 : 1.5}

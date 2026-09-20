@@ -18,9 +18,102 @@ export const wallSchema = z.object({
 })
 export type Wall = z.infer<typeof wallSchema>
 
+export const OPENING_TYPES = ['window', 'door'] as const
+export type OpeningType = (typeof OPENING_TYPES)[number]
+
+export const OPENING_LABELS: Record<OpeningType, string> = {
+  window: 'Окно',
+  door: 'Дверь',
+}
+
+export const OPENING_LIMITS = {
+  width: { min: 300, max: 4000, step: 10 },
+  height: { min: 300, max: 3000, step: 10 },
+  sill: { min: 0, max: 2000, step: 10 },
+} as const
+
+export const OPENING_DEFAULTS: Record<OpeningType, { width: number; height: number; sill: number }> = {
+  window: { width: 1200, height: 1400, sill: 900 },
+  door: { width: 800, height: 2100, sill: 0 },
+}
+
+/**
+ * Проём живёт внутри стены: положение задаётся расстоянием от её начала до центра.
+ * Планировщики хранят его долей длины стены, но у нас инструмент замера — «окно
+ * в 800 мм от угла» должно остаться на своём расстоянии, даже если стену удлинили.
+ */
+export const openingSchema = z.object({
+  id: z.string(),
+  wallId: z.string(),
+  type: z.enum(OPENING_TYPES),
+  /** Расстояние от начала стены до центра проёма. */
+  offset: z.number(),
+  width: z.number().min(OPENING_LIMITS.width.min).max(OPENING_LIMITS.width.max),
+  height: z.number().min(OPENING_LIMITS.height.min).max(OPENING_LIMITS.height.max),
+  /** Высота от пола до низа проёма: у двери 0, у окна — подоконник. */
+  sill: z.number().min(OPENING_LIMITS.sill.min).max(OPENING_LIMITS.sill.max),
+  /** Сторона петель, если смотреть из помещения. Влияет только на дугу открывания. */
+  hinge: z.enum(['left', 'right']).default('left'),
+})
+export type Opening = z.infer<typeof openingSchema>
+
+export const UTILITY_TYPES = ['water', 'sewer', 'gas', 'vent', 'power'] as const
+export type UtilityType = (typeof UTILITY_TYPES)[number]
+
+export const UTILITY_LABELS: Record<UtilityType, string> = {
+  water: 'Вода',
+  sewer: 'Канализация',
+  gas: 'Газ',
+  vent: 'Вентиляция',
+  power: 'Розетка',
+}
+
+export const UTILITY_COLORS: Record<UtilityType, string> = {
+  water: '#0ea5e9',
+  sewer: '#7c3aed',
+  gas: '#f59e0b',
+  vent: '#10b981',
+  power: '#ef4444',
+}
+
+export const UTILITY_DEFAULT_HEIGHT: Record<UtilityType, number> = {
+  water: 500,
+  sewer: 300,
+  gas: 900,
+  vent: 2200,
+  power: 1100,
+}
+
+export const utilityMountSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('floor') }),
+  z.object({
+    kind: z.literal('wall'),
+    wallId: z.string(),
+    /** Расстояние от начала стены до центра вывода. */
+    offset: z.number(),
+  }),
+])
+export type UtilityMount = z.infer<typeof utilityMountSchema>
+
+export const utilitySchema = z.object({
+  id: z.string(),
+  type: z.enum(UTILITY_TYPES),
+  /**
+   * Резервная мировая координата и координата напольного вывода. Для настенного
+   * вывода фактическое положение вычисляется из стены, чтобы он следовал за ней.
+   */
+  point: pointSchema,
+  mount: utilityMountSchema.default({ kind: 'floor' }),
+  /** Высота вывода от пола. */
+  height: z.number().min(0).max(4000),
+})
+export type Utility = z.infer<typeof utilitySchema>
+
 export const roomSchema = z.object({
   walls: z.array(wallSchema),
   wallHeight: z.number().min(WALL_LIMITS.height.min).max(WALL_LIMITS.height.max),
+  openings: z.array(openingSchema).default([]),
+  utilities: z.array(utilitySchema).default([]),
 })
 export type Room = z.infer<typeof roomSchema>
 

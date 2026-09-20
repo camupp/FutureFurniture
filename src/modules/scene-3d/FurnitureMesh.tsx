@@ -15,6 +15,7 @@ type Props = {
   others: FurnitureItem[]
   selected: boolean
   invalid: boolean
+  warning: boolean
   onSelect: () => void
 }
 
@@ -59,7 +60,7 @@ function BlockGeometry({ item, cutouts }: { item: FurnitureItem; cutouts: Cutout
   }
 }
 
-export function FurnitureMesh({ item, others, selected, invalid, onSelect }: Props) {
+export function FurnitureMesh({ item, others, selected, invalid, warning, onSelect }: Props) {
   const { width, height, depth } = item.params
   const cutouts = useCutouts(item, others)
 
@@ -75,11 +76,15 @@ export function FurnitureMesh({ item, others, selected, invalid, onSelect }: Pro
       onClick={handleClick}
     >
       <BlockGeometry item={item} cutouts={cutouts} />
-      {(selected || invalid) && (
+      {(selected || invalid || warning) && (
         <mesh position={[0, mmToM(height) / 2, 0]} raycast={() => null}>
           <boxGeometry args={[mmToM(width), mmToM(height), mmToM(depth)]} />
-          <meshBasicMaterial transparent opacity={invalid ? 0.18 : 0.06} color={invalid ? '#dc2626' : '#2563eb'} />
-          <Edges color={invalid ? '#dc2626' : '#2563eb'} />
+          <meshBasicMaterial
+            transparent
+            opacity={invalid || warning ? 0.18 : 0.06}
+            color={invalid ? '#dc2626' : warning ? '#d97706' : '#2563eb'}
+          />
+          <Edges color={invalid ? '#dc2626' : warning ? '#d97706' : '#2563eb'} />
         </mesh>
       )}
     </group>

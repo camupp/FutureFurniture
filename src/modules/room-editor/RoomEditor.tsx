@@ -3,16 +3,32 @@ import { Circle, Label, Layer, Line, Stage, Tag, Text } from 'react-konva'
 import type Konva from 'konva'
 import { useAppStore } from '../../shared/store'
 import type { FurnitureItem, Point } from '../../shared/types'
-import { bounds, distance, orthoSnap, roomPolygon, snapPoint } from '../../shared/utils/geometry'
+import { bounds, distance, orthoSnap, pointInPolygon, roomPolygon, snapPoint } from '../../shared/utils/geometry'
+import { clampOffset, nearestWall } from '../../shared/utils/openings'
 import { placeBlock } from '../../shared/utils/snapping'
 import { useElementSize } from '../../shared/utils/useElementSize'
 import { stagePointer, useStageViewport } from '../../shared/utils/useStageViewport'
-import { invalidItemIds } from '../validation/rules'
+import { utilityPoint, wallUtilityMount } from '../../shared/utils/utilities'
+import {
+  connectedUtilityIds,
+  invalidItemIds,
+  invalidOpeningIds,
+  invalidUtilityIds,
+  warningItemIds,
+} from '../validation/rules'
 import { FurnitureShape } from './components/FurnitureShape'
+import { AddContextMenu, type AddContextTarget } from './components/AddContextMenu'
+import { OpeningShape } from './components/OpeningShape'
+import { UtilityShape } from './components/UtilityShape'
 import { WallShape } from './components/WallShape'
 
 const GRID_STEP = 10
 const VERTEX_SNAP_PX = 14
+/** Насколько далеко от стены можно кликнуть, чтобы поставить в неё проём. */
+const WALL_PICK_MM = 600
+const CONTEXT_WALL_PICK_PX = 22
+const LONG_PRESS_MS = 550
+const LONG_PRESS_MOVE_PX = 10
 
 function isEditableTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null
@@ -27,22 +43,44 @@ export function RoomEditor() {
 
   const room = useAppStore((s) => s.room)
   const furniture = useAppStore((s) => s.furniture)
-  const snapToWalls = useAppStore((s) => s.snapToWalls)
+  const smartPlacement = useAppStore((s) => s.smartPlacement)
   const tool = useAppStore((s) => s.tool)
   const ortho = useAppStore((s) => s.orthoSnap)
   const selection = useAppStore((s) => s.selection)
   const select = useAppStore((s) => s.select)
   const addWall = useAppStore((s) => s.addWall)
   const dropFurniture = useAppStore((s) => s.dropFurniture)
+  const addOpening = useAppStore((s) => s.addOpening)
+  const moveOpening = useAppStore((s) => s.moveOpening)
+  const addUtility = useAppStore((s) => s.addUtility)
+  const moveUtility = useAppStore((s) => s.moveUtility)
+  const utilityType = useAppStore((s) => s.utilityType)
   const removeFurniture = useAppStore((s) => s.removeFurniture)
   const removeWall = useAppStore((s) => s.removeWall)
+  const removeOpening = useAppStore((s) => s.removeOpening)
+  const removeUtility = useAppStore((s) => s.removeUtility)
 
-  const { view, fitTo, zoomBy, handleWheel, handleStageDragEnd } = useStageViewport(width, height)
+  const {
+    view,
+    fitTo,
+    zoomBy,
+    handleWheel,
+    handleStageDragEnd,
+    handleTouchMove,
+    handleTouchEnd,
+  } = useStageViewport(width, height)
   const [draft, setDraft] = useState<Point | null>(null)
   const [cursor, setCursor] = useState<Point | null>(null)
+  const [addMenu, setAddMenu] = useState<AddContextTarget | null>(null)
+  const longPressTimer = useRef<number | null>(null)
+  const longPressStart = useRef<{ x: number; y: number } | null>(null)
 
   const polygon = useMemo(() => roomPolygon(room.walls), [room.walls])
   const invalid = useMemo(() => invalidItemIds(furniture, room), [furniture, room])
+  const warnings = useMemo(() => warningItemIds(furniture, room), [furniture, room])
+  const invalidOpenings = useMemo(() => invalidOpeningIds(room), [room])
+  const invalidUtilities = useMemo(() => invalidUtilityIds(room), [room])
+  const connectedUtilities = useMemo(() => connectedUtilityIds(furniture, room), [furniture, room])
 
   const fitPoints = useMemo(
     () =>
@@ -67,9 +105,9 @@ export function RoomEditor() {
         room,
         furniture.filter((other) => other.id !== item.id),
         roomCenter,
-        snapToWalls,
+        smartPlacement,
       ),
-    [room, furniture, roomCenter, snapToWalls],
+    [room, furniture, roomCenter, smartPlacement],
   )
 
   useEffect(() => {
@@ -84,6 +122,7 @@ export function RoomEditor() {
       if (isEditableTarget(e.target)) return
       if (e.key === 'Escape') {
         setDraft(null)
+        setAddMenu(null)
         select(null)
         return
       }
@@ -91,12 +130,26 @@ export function RoomEditor() {
         const current = useAppStore.getState().selection
         if (!current) return
         if (current.kind === 'furniture') removeFurniture(current.id)
-        else removeWall(current.id)
+        else if (current.kind === 'wall') removeWall(current.id)
+        else if (current.kind === 'opening') removeOpening(current.id)
+        else removeUtility(current.id)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [select, removeFurniture, removeWall])
+  }, [select, removeFurniture, removeWall, removeOpening, removeUtility])
+
+  useEffect(() => {
+    if (!addMenu) return
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Element | null
+      if (!target?.closest('[data-context-menu]')) setAddMenu(null)
+    }
+    window.addEventListener('pointerdown', dismiss)
+    return () => window.removeEventListener('pointerdown', dismiss)
+  }, [addMenu])
+
+  useEffect(() => setAddMenu(null), [tool])
 
   const snapForWall = useCallback(
     (raw: Point): Point => {
@@ -120,6 +173,7 @@ export function RoomEditor() {
   )
 
   const handlePointerDown = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    setAddMenu(null)
     const stage = e.target.getStage()
     if (tool === 'pan' || !stage) return
 
@@ -138,7 +192,102 @@ export function RoomEditor() {
       return
     }
 
+    if (tool === 'window' || tool === 'door') {
+      const raw = stagePointer(stage)
+      if (!raw) return
+      const hit = nearestWall(raw, room, WALL_PICK_MM)
+      if (hit) addOpening(hit.wall.id, hit.offset, tool)
+      return
+    }
+
+    if (tool === 'utility') {
+      const raw = stagePointer(stage)
+      if (raw) addUtility(snapPoint(raw, GRID_STEP), utilityType)
+      return
+    }
+
     if (e.target === stage) select(null)
+  }
+
+  const clearLongPress = () => {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current)
+    longPressTimer.current = null
+    longPressStart.current = null
+  }
+
+  const openAddMenu = useCallback(
+    (stage: Konva.Stage, clientX: number, clientY: number) => {
+      const raw = stagePointer(stage)
+      const container = containerRef.current
+      if (!raw || !container) return
+      const rect = container.getBoundingClientRect()
+      const position = { x: clientX - rect.left, y: clientY - rect.top }
+      const hit = nearestWall(raw, room, CONTEXT_WALL_PICK_PX / view.scale)
+
+      if (hit) {
+        setAddMenu({
+          kind: 'wall',
+          wallId: hit.wall.id,
+          offset: hit.offset,
+          point: raw,
+          ...position,
+        })
+      } else if (polygon.length < 3 || pointInPolygon(raw, polygon)) {
+        setAddMenu({ kind: 'floor', point: snapPoint(raw, GRID_STEP), ...position })
+      }
+    },
+    [polygon, room, view.scale],
+  )
+
+  const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
+    e.evt.preventDefault()
+    if (tool !== 'select') return
+    const stage = e.target.getStage()
+    if (!stage || (e.target !== stage && e.target.name() !== 'room-wall')) return
+    openAddMenu(stage, e.evt.clientX, e.evt.clientY)
+  }
+
+  const handleTouchStart = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    handlePointerDown(e)
+    clearLongPress()
+    const touch = e.evt.touches[0]
+    const stage = e.target.getStage()
+    if (
+      tool !== 'select' ||
+      e.evt.touches.length !== 1 ||
+      !touch ||
+      !stage ||
+      (e.target !== stage && e.target.name() !== 'room-wall')
+    ) {
+      return
+    }
+
+    const start = { x: touch.clientX, y: touch.clientY }
+    longPressStart.current = start
+    longPressTimer.current = window.setTimeout(() => {
+      stage.stopDrag()
+      openAddMenu(stage, start.x, start.y)
+      clearLongPress()
+    }, LONG_PRESS_MS)
+  }
+
+  const handleRoomTouchMove = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    const touch = e.evt.touches[0]
+    const start = longPressStart.current
+    if (
+      e.evt.touches.length !== 1 ||
+      !touch ||
+      (start && Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > LONG_PRESS_MOVE_PX)
+    ) {
+      clearLongPress()
+    }
+    handleTouchMove(e)
+    if (e.evt.touches.length < 2) handlePointerMove(e)
+  }
+
+  const handleRoomTouchEnd = () => {
+    clearLongPress()
+    handleTouchEnd()
   }
 
   const handlePointerMove = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
@@ -203,9 +352,11 @@ export function RoomEditor() {
           onDragEnd={handleStageDragEnd}
           onWheel={handleWheel}
           onMouseDown={handlePointerDown}
-          onTouchStart={handlePointerDown}
+          onContextMenu={handleContextMenu}
+          onTouchStart={handleTouchStart}
           onMouseMove={handlePointerMove}
-          onTouchMove={handlePointerMove}
+          onTouchMove={handleRoomTouchMove}
+          onTouchEnd={handleRoomTouchEnd}
           onDblClick={() => setDraft(null)}
           style={{
             cursor: tool === 'pan' ? 'grab' : tool === 'wall' ? 'crosshair' : 'default',
@@ -233,12 +384,40 @@ export function RoomEditor() {
               />
             ))}
 
+            {room.openings.map((opening) => {
+              const wall = room.walls.find((candidate) => candidate.id === opening.wallId)
+              if (!wall) return null
+              return (
+                <OpeningShape
+                  key={opening.id}
+                  opening={opening}
+                  wall={wall}
+                  offset={clampOffset(opening, wall)}
+                  selected={selection?.kind === 'opening' && selection.id === opening.id}
+                  invalid={invalidOpenings.has(opening.id)}
+                  draggable={tool === 'select'}
+                  scale={view.scale}
+                  inwardSign={
+                    (roomCenter.x - (wall.start.x + wall.end.x) / 2) *
+                        (-(wall.end.y - wall.start.y)) +
+                      (roomCenter.y - (wall.start.y + wall.end.y) / 2) * (wall.end.x - wall.start.x) >=
+                    0
+                      ? 1
+                      : -1
+                  }
+                  onSelect={() => tool === 'select' && select({ kind: 'opening', id: opening.id })}
+                  onMove={(offset) => moveOpening(opening.id, offset)}
+                />
+              )
+            })}
+
             {furniture.map((item) => (
               <FurnitureShape
                 key={item.id}
                 item={item}
                 selected={selection?.kind === 'furniture' && selection.id === item.id}
                 invalid={invalid.has(item.id)}
+                warning={warnings.has(item.id)}
                 draggable={tool === 'select'}
                 scale={view.scale}
                 onSelect={() => tool === 'select' && select({ kind: 'furniture', id: item.id })}
@@ -246,6 +425,24 @@ export function RoomEditor() {
                 resolve={(position) => resolvePlacement(item, position)}
               />
             ))}
+
+            {room.utilities.map((utility) => {
+              const point = utilityPoint(utility, room)
+              return (
+                <UtilityShape
+                  key={utility.id}
+                  utility={utility}
+                  point={point}
+                  selected={selection?.kind === 'utility' && selection.id === utility.id}
+                  invalid={invalidUtilities.has(utility.id)}
+                  connected={connectedUtilities.has(utility.id)}
+                  draggable={tool === 'select'}
+                  scale={view.scale}
+                  onSelect={() => tool === 'select' && select({ kind: 'utility', id: utility.id })}
+                  onMove={(nextPoint) => moveUtility(utility.id, snapPoint(nextPoint, GRID_STEP))}
+                />
+              )
+            })}
 
             {draft && (
               <Circle x={draft.x} y={draft.y} radius={6 / view.scale} fill="#2563eb" listening={false} />
@@ -284,9 +481,13 @@ export function RoomEditor() {
             ? draft
               ? 'Клик — следующая точка · Esc или двойной клик — завершить'
               : 'Клик — первая точка стены'
-            : tool === 'pan'
-              ? 'Тяните холст для перемещения'
-              : 'Вид сверху · 1 клетка = 1000 мм'}
+            : tool === 'window' || tool === 'door'
+              ? 'Коснитесь стены, чтобы добавить проём'
+              : tool === 'utility'
+                ? 'Коснитесь плана, чтобы поставить вывод'
+                : tool === 'pan'
+                  ? 'Тяните холст для перемещения · щипок — масштаб'
+                  : 'Вид сверху · ПКМ или долгое нажатие — добавить · щипок — масштаб'}
         </span>
         <div className="pointer-events-auto flex gap-1">
           <ViewButton onClick={() => zoomBy(1.25)} label="+" />
@@ -294,6 +495,27 @@ export function RoomEditor() {
           <ViewButton onClick={fitToContent} label="По размеру" />
         </div>
       </div>
+
+      {addMenu && (
+        <AddContextMenu
+          target={addMenu}
+          containerWidth={width}
+          containerHeight={height}
+          onClose={() => setAddMenu(null)}
+          onAddOpening={(type) => {
+            if (addMenu.kind === 'wall') addOpening(addMenu.wallId, addMenu.offset, type)
+            setAddMenu(null)
+          }}
+          onAddUtility={(type) => {
+            if (addMenu.kind === 'wall') {
+              addUtility(addMenu.point, type, wallUtilityMount(addMenu.wallId, addMenu.offset))
+            } else {
+              addUtility(addMenu.point, type, { kind: 'floor' })
+            }
+            setAddMenu(null)
+          }}
+        />
+      )}
     </div>
   )
 }

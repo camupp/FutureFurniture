@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type Konva from 'konva'
 import type { Point } from '../types'
 import { bounds } from './geometry'
@@ -56,7 +56,47 @@ export function useStageViewport(width: number, height: number) {
     setView((v) => ({ ...v, x: e.target.x(), y: e.target.y() }))
   }, [])
 
-  return { view, fitTo, zoomBy, handleWheel, handleStageDragEnd }
+  /**
+   * Щипок двумя пальцами — единственный способ менять масштаб на планшете.
+   * Konva сам drag не отменяет, поэтому на время жеста он выключается,
+   * иначе холст уезжает вслед за первым пальцем.
+   */
+  const pinch = useRef<{ distance: number; center: Point } | null>(null)
+
+  const handleTouchMove = useCallback((e: Konva.KonvaEventObject<TouchEvent>) => {
+    const touches = e.evt.touches
+    if (touches.length < 2) {
+      pinch.current = null
+      return
+    }
+    e.evt.preventDefault()
+    const stage = e.target.getStage()
+    if (!stage) return
+    stage.stopDrag()
+
+    const [first, second] = [touches[0], touches[1]]
+    const rect = stage.container().getBoundingClientRect()
+    const center = {
+      x: (first.clientX + second.clientX) / 2 - rect.left,
+      y: (first.clientY + second.clientY) / 2 - rect.top,
+    }
+    const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)
+    const previous = pinch.current
+    pinch.current = { distance, center }
+    if (!previous || previous.distance < 1) return
+
+    setView((v) => {
+      const scale = clamp((v.scale * distance) / previous.distance, MIN_SCALE, MAX_SCALE)
+      const anchor = { x: (previous.center.x - v.x) / v.scale, y: (previous.center.y - v.y) / v.scale }
+      return { scale, x: center.x - anchor.x * scale, y: center.y - anchor.y * scale }
+    })
+  }, [])
+
+  const handleTouchEnd = useCallback(() => {
+    pinch.current = null
+  }, [])
+
+  return { view, fitTo, zoomBy, handleWheel, handleStageDragEnd, handleTouchMove, handleTouchEnd }
 }
 
 /** Координаты указателя в миллиметрах сцены. */

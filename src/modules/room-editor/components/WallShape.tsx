@@ -16,6 +16,7 @@ export function WallShape({ wall, selected, scale, onSelect }: Props) {
   return (
     <>
       <Line
+        name="room-wall"
         points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
         stroke={selected ? '#2563eb' : '#64748b'}
         strokeWidth={wall.thickness}
