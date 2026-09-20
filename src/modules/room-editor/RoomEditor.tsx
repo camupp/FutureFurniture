@@ -17,6 +17,7 @@ import {
   warningItemIds,
 } from '../validation/rules'
 import { FurnitureShape } from './components/FurnitureShape'
+import { visibleFurnitureLabelIds } from './furnitureLabels'
 import { AddContextMenu, type AddContextTarget } from './components/AddContextMenu'
 import { OpeningShape } from './components/OpeningShape'
 import { UtilityShape } from './components/UtilityShape'
@@ -67,6 +68,7 @@ export function RoomEditor() {
   const [draft, setDraft] = useState<Point | null>(null)
   const [cursor, setCursor] = useState<Point | null>(null)
   const [addMenu, setAddMenu] = useState<AddContextTarget | null>(null)
+  const [snapPreviewWallId, setSnapPreviewWallId] = useState<string | null>(null)
   const longPressTimer = useRef<number | null>(null)
   const longPressStart = useRef<{ x: number; y: number } | null>(null)
 
@@ -76,6 +78,11 @@ export function RoomEditor() {
   const invalidOpenings = useMemo(() => invalidOpeningIds(room), [room])
   const invalidUtilities = useMemo(() => invalidUtilityIds(room), [room])
   const connectedUtilities = useMemo(() => connectedUtilityIds(furniture, room), [furniture, room])
+  const selectedFurnitureId = selection?.kind === 'furniture' ? selection.id : undefined
+  const visibleFurnitureLabels = useMemo(
+    () => visibleFurnitureLabelIds(furniture, selectedFurnitureId),
+    [furniture, selectedFurnitureId],
+  )
 
   const fitPoints = useMemo(
     () =>
@@ -374,6 +381,7 @@ export function RoomEditor() {
                 key={wall.id}
                 wall={wall}
                 selected={selection?.kind === 'wall' && selection.id === wall.id}
+                highlighted={snapPreviewWallId === wall.id}
                 scale={view.scale}
                 onSelect={() => tool === 'select' && select({ kind: 'wall', id: wall.id })}
               />
@@ -412,10 +420,12 @@ export function RoomEditor() {
                 selected={selection?.kind === 'furniture' && selection.id === item.id}
                 invalid={invalid.has(item.id)}
                 warning={warnings.has(item.id)}
+                showLabel={visibleFurnitureLabels.has(item.id)}
                 draggable={tool === 'select'}
                 scale={view.scale}
                 onSelect={() => tool === 'select' && select({ kind: 'furniture', id: item.id })}
                 onMove={(position) => dropFurniture(item.id, position)}
+                onPreview={(placement) => setSnapPreviewWallId(placement?.wallAnchor?.wallId ?? null)}
                 resolve={(position) => resolvePlacement(item, position)}
               />
             ))}

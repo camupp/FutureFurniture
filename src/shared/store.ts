@@ -23,9 +23,10 @@ import {
 import { snapElevation } from './utils/elevation'
 import { bounds, roomPolygon, setWallLength, wallLength } from './utils/geometry'
 import { normalizeOpening } from './utils/openings'
-import { placeBlock, placeBlockInSection } from './utils/snapping'
+import { placeBlock, placeBlockInSection, placeBlockOnWall } from './utils/snapping'
 import { clamp } from './utils/units'
 import { moveUtilityToPoint, normalizeUtility, utilityPoint } from './utils/utilities'
+import { detachFromWall, furnitureFromWallAnchor, inferWallAnchor, syncFurnitureToWalls } from './utils/wallAnchors'
 
 export type Tool = 'select' | 'wall' | 'window' | 'door' | 'utility' | 'pan'
 export type ViewMode = '2d' | 'split' | '3d'
@@ -77,6 +78,8 @@ type AppState = Project & {
   smartPlacement: boolean
   viewMode: ViewMode
   editorView: EditorView
+  /** Стена, внутренний фасад которой открыт в редакторе по высоте. */
+  elevationWallId: string | null
   /** Какой вывод ставит инструмент «Коммуникация». */
   utilityType: UtilityType
 
@@ -86,6 +89,7 @@ type AppState = Project & {
   setSmartPlacement: (enabled: boolean) => void
   setViewMode: (mode: ViewMode) => void
   setEditorView: (view: EditorView) => void
+  setElevationWall: (wallId: string) => void
   select: (selection: Selection) => void
 
   addWall: (start: Point, end: Point) => void
@@ -108,6 +112,8 @@ type AppState = Project & {
   addBlock: (block: NewBlock) => void
   /** Точное перемещение: из панели свойств и вида по высоте. */
   moveFurniture: (id: string, position: Point) => void
+  moveFurnitureAlongWall: (id: string, offset: number) => void
+  detachFurniture: (id: string) => void
   /** Перетаскивание на плане: применяет привязки к стенам и соседям. */
   dropFurniture: (id: string, position: Point) => void
   /** Перетаскивание в виде спереди: привязки по горизонтали и по высоте сразу. */
@@ -129,6 +135,7 @@ export const useAppStore = create<AppState>()(
       smartPlacement: true,
       viewMode: 'split',
       editorView: 'plan',
+      elevationWallId: null,
       utilityType: 'water',
 
       setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : null }),
@@ -136,16 +143,59 @@ export const useAppStore = create<AppState>()(
       setOrthoSnap: (orthoSnap) => set({ orthoSnap }),
       setSmartPlacement: (smartPlacement) => set({ smartPlacement }),
       setViewMode: (viewMode) => set({ viewMode }),
-      setEditorView: (editorView) => set({ editorView, tool: editorView === 'elevation' ? 'select' : get().tool }),
-      select: (selection) => set({ selection }),
+      setEditorView: (editorView) =>
+        set((state) => {
+          if (editorView === 'plan') return { editorView, tool: state.tool }
+          let selectedWallId: string | undefined
+          if (state.selection?.kind === 'wall') selectedWallId = state.selection.id
+          if (state.selection?.kind === 'furniture') {
+            selectedWallId = state.furniture.find((item) => item.id === state.selection?.id)?.wallAnchor?.wallId
+          }
+          if (state.selection?.kind === 'opening') {
+            selectedWallId = state.room.openings.find((opening) => opening.id === state.selection?.id)?.wallId
+          }
+          if (state.selection?.kind === 'utility') {
+            const utility = state.room.utilities.find((candidate) => candidate.id === state.selection?.id)
+            selectedWallId = utility?.mount.kind === 'wall' ? utility.mount.wallId : undefined
+          }
+          const elevationWallId =
+            selectedWallId && state.room.walls.some((wall) => wall.id === selectedWallId)
+              ? selectedWallId
+              : state.room.walls.some((wall) => wall.id === state.elevationWallId)
+                ? state.elevationWallId
+                : (state.room.walls[0]?.id ?? null)
+          return { editorView, elevationWallId, tool: 'select' }
+        }),
+      setElevationWall: (elevationWallId) =>
+        set((state) =>
+          state.room.walls.some((wall) => wall.id === elevationWallId) ? { elevationWallId, selection: null } : state,
+        ),
+      select: (selection) =>
+        set((state) => {
+          if (selection?.kind === 'wall') return { selection, elevationWallId: selection.id }
+          if (selection?.kind === 'furniture') {
+            const wallId = state.furniture.find((item) => item.id === selection.id)?.wallAnchor?.wallId
+            if (wallId) return { selection, elevationWallId: wallId }
+          }
+          if (selection?.kind === 'opening') {
+            const wallId = state.room.openings.find((opening) => opening.id === selection.id)?.wallId
+            if (wallId) return { selection, elevationWallId: wallId }
+          }
+          if (selection?.kind === 'utility') {
+            const utility = state.room.utilities.find((candidate) => candidate.id === selection.id)
+            if (utility?.mount.kind === 'wall') return { selection, elevationWallId: utility.mount.wallId }
+          }
+          return { selection }
+        }),
 
       addWall: (start, end) =>
-        set((state) => ({
-          room: {
-            ...state.room,
-            walls: [...state.room.walls, { id: newId(), start, end, thickness: DEFAULT_WALL_THICKNESS }],
-          },
-        })),
+        set((state) => {
+          const wall = { id: newId(), start, end, thickness: DEFAULT_WALL_THICKNESS }
+          return {
+            room: { ...state.room, walls: [...state.room.walls, wall] },
+            elevationWallId: state.elevationWallId ?? wall.id,
+          }
+        }),
 
       updateWallLength: (id, length) =>
         set((state) => {
@@ -164,20 +214,24 @@ export const useAppStore = create<AppState>()(
             const normalized = normalizeUtility(utility, nextRoom)
             return normalized ? [normalized] : []
           })
-          return { room: { ...nextRoom, utilities } }
+          return {
+            room: { ...nextRoom, utilities },
+            furniture: syncFurnitureToWalls(state.furniture, walls),
+          }
         }),
 
       updateWallThickness: (id, thickness) =>
-        set((state) => ({
-          room: {
-            ...state.room,
-            walls: state.room.walls.map((wall) =>
-              wall.id === id
-                ? { ...wall, thickness: clamp(thickness, WALL_LIMITS.thickness.min, WALL_LIMITS.thickness.max) }
-                : wall,
-            ),
-          },
-        })),
+        set((state) => {
+          const walls = state.room.walls.map((wall) =>
+            wall.id === id
+              ? { ...wall, thickness: clamp(thickness, WALL_LIMITS.thickness.min, WALL_LIMITS.thickness.max) }
+              : wall,
+          )
+          return {
+            room: { ...state.room, walls },
+            furniture: syncFurnitureToWalls(state.furniture, walls),
+          }
+        }),
 
       removeWall: (id) =>
         set((state) => ({
@@ -189,6 +243,11 @@ export const useAppStore = create<AppState>()(
               (utility) => utility.mount.kind !== 'wall' || utility.mount.wallId !== id,
             ),
           },
+          furniture: state.furniture.map((item) => (item.wallAnchor?.wallId === id ? detachFromWall(item) : item)),
+          elevationWallId:
+            state.elevationWallId === id
+              ? (state.room.walls.find((wall) => wall.id !== id)?.id ?? null)
+              : state.elevationWallId,
           selection:
             state.selection?.id === id ||
             (state.selection?.kind === 'opening' &&
@@ -226,6 +285,7 @@ export const useAppStore = create<AppState>()(
           room: { walls: [], wallHeight: get().room.wallHeight, openings: [], utilities: [] },
           furniture: [],
           selection: null,
+          elevationWallId: null,
         }),
 
       addOpening: (wallId, offset, type) => {
@@ -350,7 +410,35 @@ export const useAppStore = create<AppState>()(
 
       moveFurniture: (id, position) =>
         set((state) => ({
-          furniture: state.furniture.map((item) => (item.id === id ? { ...item, position } : item)),
+          furniture: state.furniture.map((item) => (item.id === id ? { ...detachFromWall(item), position } : item)),
+        })),
+
+      moveFurnitureAlongWall: (id, offset) =>
+        set((state) => {
+          const polygon = roomPolygon(state.room.walls)
+          const roomCenter = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
+          return {
+            furniture: state.furniture.map((item) => {
+              if (item.id !== id || !item.wallAnchor) return item
+              const wall = state.room.walls.find((candidate) => candidate.id === item.wallAnchor?.wallId)
+              if (!wall) return detachFromWall(item)
+              const placement = placeBlockOnWall(
+                item,
+                wall.id,
+                Math.round(offset),
+                state.room,
+                state.furniture.filter((candidate) => candidate.id !== id),
+                roomCenter,
+                false,
+              )
+              return { ...item, ...placement }
+            }),
+          }
+        }),
+
+      detachFurniture: (id) =>
+        set((state) => ({
+          furniture: state.furniture.map((item) => (item.id === id ? detachFromWall(item) : item)),
         })),
 
       dropFurniture: (id, position) =>
@@ -362,7 +450,12 @@ export const useAppStore = create<AppState>()(
           const others = state.furniture.filter((candidate) => candidate.id !== id)
           const placement = placeBlock(item, position, state.room, others, roomCenter, state.smartPlacement)
           // Блок, переехавший на столешницу, должен врезаться в неё и по высоте.
-          const moved = { ...item, position: placement.position, rotation: placement.rotation }
+          const moved = {
+            ...item,
+            position: placement.position,
+            rotation: placement.rotation,
+            wallAnchor: placement.wallAnchor,
+          }
           const elevation = state.smartPlacement ? snapElevation(moved, item.elevation, others) : item.elevation
           return {
             furniture: state.furniture.map((candidate) => (candidate.id === id ? { ...moved, elevation } : candidate)),
@@ -373,11 +466,14 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           const item = state.furniture.find((candidate) => candidate.id === id)
           if (!item) return state
+          const wallId = state.elevationWallId ?? item.wallAnchor?.wallId
+          if (!wallId) return state
           const polygon = roomPolygon(state.room.walls)
           const roomCenter = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
           const others = state.furniture.filter((candidate) => candidate.id !== id)
           const placement = placeBlockInSection(
             item,
+            wallId,
             x,
             elevation,
             state.room,
@@ -389,7 +485,13 @@ export const useAppStore = create<AppState>()(
           return {
             furniture: state.furniture.map((candidate) =>
               candidate.id === id
-                ? { ...candidate, position: placement.position, rotation: placement.rotation, elevation: limited }
+                ? {
+                    ...candidate,
+                    position: placement.position,
+                    rotation: placement.rotation,
+                    wallAnchor: placement.wallAnchor,
+                    elevation: limited,
+                  }
                 : candidate,
             ),
           }
@@ -410,16 +512,39 @@ export const useAppStore = create<AppState>()(
       rotateFurniture: (id, rotation) =>
         set((state) => ({
           furniture: state.furniture.map((item) =>
-            item.id === id ? { ...item, rotation: ((rotation % 360) + 360) % 360 } : item,
+            item.id === id ? { ...detachFromWall(item), rotation: ((rotation % 360) + 360) % 360 } : item,
           ),
         })),
 
       updateFurnitureParams: (id, patch) =>
-        set((state) => ({
-          furniture: state.furniture.map((item) =>
-            item.id === id ? { ...item, params: clampParams(item.type, { ...item.params, ...patch }) } : item,
-          ),
-        })),
+        set((state) => {
+          const polygon = roomPolygon(state.room.walls)
+          const roomCenter = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
+          return {
+            furniture: state.furniture.map((item) => {
+              if (item.id !== id) return item
+              const resized = { ...item, params: clampParams(item.type, { ...item.params, ...patch }) }
+              if (!resized.wallAnchor) return resized
+              const wall = state.room.walls.find((candidate) => candidate.id === resized.wallAnchor?.wallId)
+              if (!wall) return detachFromWall(resized)
+
+              const footprintChanged =
+                resized.params.width !== item.params.width || resized.params.depth !== item.params.depth
+              if (!footprintChanged) return furnitureFromWallAnchor(resized, wall)
+
+              const placement = placeBlockOnWall(
+                resized,
+                wall.id,
+                resized.wallAnchor.offset,
+                state.room,
+                state.furniture.filter((candidate) => candidate.id !== id),
+                roomCenter,
+                state.smartPlacement,
+              )
+              return { ...resized, ...placement }
+            }),
+          }
+        }),
 
       removeFurniture: (id) =>
         set((state) => ({
@@ -429,7 +554,12 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'future-furniture-project',
-      partialize: (state) => ({ room: state.room, furniture: state.furniture, viewMode: state.viewMode }),
+      partialize: (state) => ({
+        room: state.room,
+        furniture: state.furniture,
+        viewMode: state.viewMode,
+        elevationWallId: state.elevationWallId,
+      }),
       merge: (persisted, current) => {
         const parsed = projectSchema.safeParse(persisted)
         if (!parsed.success) return current
@@ -445,11 +575,26 @@ export const useAppStore = create<AppState>()(
           const normalized = normalizeUtility(utility, room)
           return normalized ? [{ ...normalized, point: utilityPoint(normalized, room) }] : []
         })
+        const polygon = roomPolygon(room.walls)
+        const roomCenter = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
+        const furniture = syncFurnitureToWalls(
+          parsed.data.furniture.map((item) => {
+            const wallAnchor = item.wallAnchor ?? inferWallAnchor(item, room, roomCenter)
+            return wallAnchor ? { ...item, wallAnchor } : item
+          }),
+          room.walls,
+        )
+        const persistedElevationWallId = (persisted as { elevationWallId?: string | null }).elevationWallId
+        const elevationWallId = room.walls.some((wall) => wall.id === persistedElevationWallId)
+          ? (persistedElevationWallId ?? null)
+          : (room.walls[0]?.id ?? null)
         return {
           ...current,
           ...parsed.data,
           room: { ...room, openings, utilities },
+          furniture,
           viewMode: viewMode ?? current.viewMode,
+          elevationWallId,
         }
       },
     },

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '../../src/shared/store'
 import { utilityPoint } from '../../src/shared/utils/utilities'
+import { blocksOverlap } from '../../src/shared/utils/collision'
 import { makeRoom } from '../fixtures'
+import { makeFurniture } from '../fixtures'
+import { furnitureFromWallAnchor } from '../../src/shared/utils/wallAnchors'
 
 function resetStore() {
   localStorage.clear()
@@ -104,5 +107,136 @@ describe('persistence migration', () => {
       height: 0,
     })
     expect(state.viewMode).toBe('2d')
+  })
+
+  it('restores the wall attachment of legacy furniture that was snapped to a wall', async () => {
+    const room = makeRoom()
+    const legacyFurniture = makeFurniture('cabinet', { position: { x: 1000, y: 330 }, rotation: 0 })
+    localStorage.setItem(
+      'future-furniture-project',
+      JSON.stringify({ state: { room, furniture: [legacyFurniture], viewMode: 'split' }, version: 0 }),
+    )
+
+    await useAppStore.persist.rehydrate()
+    expect(useAppStore.getState().furniture[0]?.wallAnchor).toEqual({
+      wallId: 'top',
+      side: 'left',
+      offset: 1000,
+      distance: 0,
+    })
+  })
+})
+
+describe('wall-attached furniture actions', () => {
+  it('stores an attachment after a smart drop', () => {
+    useAppStore.getState().addBlock({
+      type: 'cabinet',
+      elevation: 0,
+      params: makeFurniture().params,
+    })
+    const id = useAppStore.getState().furniture[0]!.id
+    useAppStore.getState().dropFurniture(id, { x: 1000, y: 200 })
+
+    expect(useAppStore.getState().furniture[0]).toMatchObject({
+      position: { x: 1000, y: 330 },
+      rotation: 0,
+      wallAnchor: { wallId: 'top', side: 'left', offset: 1000, distance: 0 },
+    })
+  })
+
+  it('moves attached furniture together with a shifted wall', () => {
+    const room = makeRoom()
+    const source = makeFurniture('cabinet', {
+      wallAnchor: { wallId: 'right', side: 'left', offset: 1000, distance: 0 },
+    })
+    const attached = furnitureFromWallAnchor(source, room.walls[1]!)
+    useAppStore.setState({ furniture: [attached] })
+
+    useAppStore.getState().updateWallLength('top', 4000)
+    expect(useAppStore.getState().furniture[0]).toMatchObject({
+      position: { x: 3670, y: 1000 },
+      rotation: 90,
+      wallAnchor: { wallId: 'right', offset: 1000 },
+    })
+  })
+
+  it('detaches furniture without deleting it when its wall is removed', () => {
+    const room = makeRoom()
+    const source = makeFurniture('cabinet', {
+      wallAnchor: { wallId: 'top', side: 'left', offset: 1000, distance: 0 },
+    })
+    useAppStore.setState({ furniture: [furnitureFromWallAnchor(source, room.walls[0]!)] })
+
+    useAppStore.getState().removeWall('top')
+    expect(useAppStore.getState().furniture).toHaveLength(1)
+    expect(useAppStore.getState().furniture[0]?.wallAnchor).toBeUndefined()
+    expect(useAppStore.getState().furniture[0]?.position).toEqual({ x: 1000, y: 330 })
+  })
+
+  it('moves a resized cabinet to the free place in its wall row', () => {
+    const room = makeRoom()
+    const wall = room.walls[0]!
+    const first = furnitureFromWallAnchor(
+      makeFurniture('cabinet', {
+        id: 'first',
+        wallAnchor: { wallId: wall.id, side: 'left', offset: 1000, distance: 0 },
+      }),
+      wall,
+    )
+    const second = furnitureFromWallAnchor(
+      makeFurniture('cabinet', {
+        id: 'second',
+        wallAnchor: { wallId: wall.id, side: 'left', offset: 1600, distance: 0 },
+      }),
+      wall,
+    )
+    useAppStore.setState({ furniture: [first, second], smartPlacement: true })
+
+    useAppStore.getState().updateFurnitureParams('second', { width: 1200 })
+    const [nextFirst, nextSecond] = useAppStore.getState().furniture
+    expect(nextSecond).toMatchObject({
+      position: { x: 1900, y: 330 },
+      wallAnchor: { wallId: 'top', side: 'left', offset: 1900, distance: 0 },
+    })
+    expect(blocksOverlap(nextFirst!, nextSecond!)).toBe(false)
+  })
+
+  it('reprojects an attached cabinet after a depth change', () => {
+    const room = makeRoom()
+    const wall = room.walls[0]!
+    const item = furnitureFromWallAnchor(
+      makeFurniture('cabinet', {
+        id: 'cabinet',
+        wallAnchor: { wallId: wall.id, side: 'left', offset: 1500, distance: 0 },
+      }),
+      wall,
+    )
+    useAppStore.setState({ furniture: [item] })
+
+    useAppStore.getState().updateFurnitureParams('cabinet', { depth: 700 })
+    expect(useAppStore.getState().furniture[0]).toMatchObject({
+      position: { x: 1500, y: 400 },
+      wallAnchor: { wallId: 'top', side: 'left', offset: 1500, distance: 0 },
+    })
+  })
+
+  it('clamps an exact wall offset to the clear corner range', () => {
+    const room = makeRoom()
+    const wall = room.walls[0]!
+    const item = furnitureFromWallAnchor(
+      makeFurniture('cabinet', {
+        id: 'wide',
+        params: { ...makeFurniture().params, width: 1200 },
+        wallAnchor: { wallId: wall.id, side: 'left', offset: 1000, distance: 0 },
+      }),
+      wall,
+    )
+    useAppStore.setState({ furniture: [item] })
+
+    useAppStore.getState().moveFurnitureAlongWall('wide', 0)
+    expect(useAppStore.getState().furniture[0]).toMatchObject({
+      position: { x: 650, y: 330 },
+      wallAnchor: { wallId: 'top', offset: 650 },
+    })
   })
 })

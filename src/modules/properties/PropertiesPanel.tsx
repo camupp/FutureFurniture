@@ -15,6 +15,7 @@ import {
 import { pointInPolygon, roomPolygon, wallLength } from '../../shared/utils/geometry'
 import { clamp } from '../../shared/utils/units'
 import { utilityPoint } from '../../shared/utils/utilities'
+import { wallAnchorIsValid, wallAnchorOffsetLimits } from '../../shared/utils/wallAnchors'
 import {
   assessUtilities,
   blocksOpening,
@@ -308,21 +309,49 @@ function BlockProperties() {
   const elevateFurniture = useAppStore((s) => s.elevateFurniture)
   const rotateFurniture = useAppStore((s) => s.rotateFurniture)
   const moveFurniture = useAppStore((s) => s.moveFurniture)
+  const moveFurnitureAlongWall = useAppStore((s) => s.moveFurnitureAlongWall)
+  const detachFurniture = useAppStore((s) => s.detachFurniture)
   const removeFurniture = useAppStore((s) => s.removeFurniture)
   if (!item) return null
 
   const outside = !isItemInsideRoom(item, room)
+  const invalidAnchor = !wallAnchorIsValid(item, room)
   const overlapping = collides(item, furniture)
   const coversOpening = blocksOpening(item, room)
   const utilityAssessment = assessUtilities(item, furniture, room)
   const utilityWarnings = [...new Set(utilityAssessment.warnings)]
 
   const limits = BLOCK_LIMITS[item.type]
+  const anchorWall = item.wallAnchor
+    ? room.walls.find((candidate) => candidate.id === item.wallAnchor?.wallId)
+    : undefined
+  const anchorWallIndex = anchorWall ? room.walls.findIndex((candidate) => candidate.id === anchorWall.id) : -1
+  const anchorLimits =
+    item.wallAnchor && anchorWall
+      ? wallAnchorOffsetLimits(item, anchorWall, room.walls, item.wallAnchor.side, item.wallAnchor.distance)
+      : undefined
 
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm font-medium text-slate-800">{BLOCK_LABELS[item.type]}</p>
+      {item.wallAnchor && anchorWall && (
+        <div className="-mt-2 flex items-center justify-between gap-2 rounded-md bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
+          <span>Прикреплён к стене {anchorWallIndex + 1}</span>
+          <button
+            type="button"
+            onClick={() => detachFurniture(item.id)}
+            className="font-medium underline decoration-emerald-300 underline-offset-2"
+          >
+            Отвязать
+          </button>
+        </div>
+      )}
       {outside && <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок выходит за контур стен</p>}
+      {invalidAnchor && (
+        <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">
+          Блок не помещается по длине привязанной стены
+        </p>
+      )}
       {overlapping && (
         <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок пересекается с другим блоком</p>
       )}
@@ -398,27 +427,44 @@ function BlockProperties() {
 
       <div>
         <span className="mb-1.5 block text-xs font-medium text-slate-600">
-          Положение <span className="text-slate-400">X и Y — на плане, Z — над полом</span>
+          Положение{' '}
+          <span className="text-slate-400">
+            {item.wallAnchor && anchorWall ? 'вдоль стены и над полом' : 'X и Y — на плане, Z — над полом'}
+          </span>
         </span>
-        <div className="grid grid-cols-3 gap-1.5">
-          <NumberField
-            label="X"
-            value={Math.round(item.position.x)}
-            min={-50000}
-            max={50000}
-            step={10}
-            slider={false}
-            onChange={(x) => moveFurniture(item.id, { ...item.position, x })}
-          />
-          <NumberField
-            label="Y"
-            value={Math.round(item.position.y)}
-            min={-50000}
-            max={50000}
-            step={10}
-            slider={false}
-            onChange={(y) => moveFurniture(item.id, { ...item.position, y })}
-          />
+        <div className={`grid gap-1.5 ${item.wallAnchor && anchorWall ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          {item.wallAnchor && anchorWall ? (
+            <NumberField
+              label="От начала"
+              value={Math.round(item.wallAnchor.offset)}
+              min={anchorLimits?.min ?? item.params.width / 2}
+              max={anchorLimits?.max ?? item.params.width / 2}
+              step={10}
+              slider={false}
+              onChange={(offset) => moveFurnitureAlongWall(item.id, offset)}
+            />
+          ) : (
+            <>
+              <NumberField
+                label="X"
+                value={Math.round(item.position.x)}
+                min={-50000}
+                max={50000}
+                step={10}
+                slider={false}
+                onChange={(x) => moveFurniture(item.id, { ...item.position, x })}
+              />
+              <NumberField
+                label="Y"
+                value={Math.round(item.position.y)}
+                min={-50000}
+                max={50000}
+                step={10}
+                slider={false}
+                onChange={(y) => moveFurniture(item.id, { ...item.position, y })}
+              />
+            </>
+          )}
           <NumberField
             label="Z"
             value={item.elevation}

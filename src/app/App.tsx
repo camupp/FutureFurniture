@@ -24,7 +24,7 @@ const VIEW_MODES: { value: ViewMode; label: string }[] = [
 
 const EDITOR_VIEWS: { value: EditorView; label: string }[] = [
   { value: 'plan', label: 'Вид сверху' },
-  { value: 'elevation', label: 'Вид спереди' },
+  { value: 'elevation', label: 'Фасад стены' },
 ]
 
 export function App() {

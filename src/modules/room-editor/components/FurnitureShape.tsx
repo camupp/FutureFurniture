@@ -8,10 +8,12 @@ type Props = {
   selected: boolean
   invalid: boolean
   warning: boolean
+  showLabel: boolean
   draggable: boolean
   scale: number
   onSelect: () => void
   onMove: (position: Point) => void
+  onPreview: (placement: Placement | null) => void
   /** Куда блок встанет, если отпустить его здесь. Считается на каждый кадр перетаскивания. */
   resolve: (position: Point) => Placement
 }
@@ -21,10 +23,12 @@ export function FurnitureShape({
   selected,
   invalid,
   warning,
+  showLabel,
   draggable,
   scale,
   onSelect,
   onMove,
+  onPreview,
   resolve,
 }: Props) {
   const { width, depth, facadeColor } = item.params
@@ -44,11 +48,13 @@ export function FurnitureShape({
   }
 
   const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
-    applyPlacement(e.target)
+    onPreview(applyPlacement(e.target))
   }
 
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    onMove(applyPlacement(e.target).position)
+    const placement = applyPlacement(e.target)
+    onPreview(null)
+    onMove(placement.position)
   }
 
   return (
@@ -61,6 +67,7 @@ export function FurnitureShape({
       onTouchStart={onSelect}
       onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
+      onDragStart={(event) => onPreview(applyPlacement(event.target))}
     >
       <Rect
         x={-width / 2}
@@ -85,26 +92,28 @@ export function FurnitureShape({
           listening={false}
         />
       )}
-      <Label
-        x={0}
-        y={0}
-        scaleX={1 / scale}
-        scaleY={1 / scale}
-        offsetX={36}
-        offsetY={9}
-        rotation={-item.rotation}
-        listening={false}
-      >
-        <Tag fill="#ffffff" opacity={0.85} cornerRadius={3} />
-        <Text
-          text={item.elevation > 0 ? `${width} ↑${item.elevation}` : String(width)}
-          fontSize={12}
-          padding={3}
-          width={72}
-          align="center"
-          fill="#0f172a"
-        />
-      </Label>
+      {showLabel && (
+        <Label
+          x={0}
+          y={0}
+          scaleX={1 / scale}
+          scaleY={1 / scale}
+          offsetX={36}
+          offsetY={9}
+          rotation={-item.rotation}
+          listening={false}
+        >
+          <Tag fill="#ffffff" opacity={0.85} cornerRadius={3} />
+          <Text
+            text={item.elevation > 0 ? `${width} ↑${item.elevation}` : String(width)}
+            fontSize={12}
+            padding={3}
+            width={72}
+            align="center"
+            fill="#0f172a"
+          />
+        </Label>
+      )}
     </Group>
   )
 }

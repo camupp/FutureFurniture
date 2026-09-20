@@ -1,11 +1,22 @@
-import type { FurnitureItem, Opening, Point, Room, Wall } from '../types'
+import type { FurnitureItem, Opening, Point, Room, Wall, WallAnchor, WallSide } from '../types'
 import { blocksOverlap, footprintsOverlap, projectExtent } from './collision'
 import { snapElevation } from './elevation'
-import { distance, itemFootprint, rotatePoint, snap, snapPoint, wallAngle, wallLength } from './geometry'
-import { inwardWallNormal, openingObstaclePolygons } from './openings'
+import { distance, itemFootprint, rotatePoint, snap, snapPoint, wallLength } from './geometry'
+import { openingObstaclePolygons } from './openings'
+import {
+  anchorAtPosition,
+  displayToWallOffset,
+  positionFromWallAnchor,
+  rotationFacingWall,
+  wallAnchorOffsetLimits,
+  wallFrame,
+  wallInteriorSide,
+} from './wallAnchors'
 
 /** На сколько мм от задней грани блока ловится стена. */
 const WALL_GRAB = 350
+/** Текущая стена сохраняет приоритет у угла, пока другая не станет заметно ближе. */
+const REHOST_HYSTERESIS = 120
 /** Зазор между соседними блоками, в пределах которого они стыкуются вплотную. */
 const NEIGHBOUR_GRAB = 250
 /** Допуск по разнице углов, при котором блоки считаются стоящими в одну линию. */
@@ -16,15 +27,18 @@ const SAME_ROW_TOLERANCE = 50
 const RESOLVE_STEPS = 8
 const GRID_STEP = 10
 
-export type Placement = { position: Point; rotation: number }
+export type Placement = { position: Point; rotation: number; wallAnchor?: WallAnchor }
 
 /** Посадка на стену вместе с её системой координат: ось вдоль стены и нормаль внутрь. */
 type WallFit = {
   placement: Placement
+  wall: Wall
+  side: WallSide
   origin: Point
   axis: Point
   normal: Point
-  offset: number
+  across: number
+  distance: number
   minAlong: number
   maxAlong: number
 }
@@ -32,14 +46,6 @@ type WallFit = {
 /** Приводит угол к [0, 360) и убирает хвост после округлений. */
 function normalizeAngle(deg: number): number {
   return Math.round((((deg % 360) + 360) % 360) * 100) / 100
-}
-
-/**
- * Угол блока, при котором фасад смотрит вдоль вектора `dir`.
- * Фасад блока с поворотом θ направлен в (-sin θ, cos θ), отсюда θ = atan2(-x, y).
- */
-function rotationFacing(dir: Point): number {
-  return (Math.atan2(-dir.x, dir.y) * 180) / Math.PI
 }
 
 /** Направление ширины блока на плане. */
@@ -57,46 +63,63 @@ function closestPointOnSegment(p: Point, a: Point, b: Point): Point {
   return { x: a.x + dx * t, y: a.y + dy * t }
 }
 
+function fitToWall(
+  item: FurnitureItem,
+  wall: Wall,
+  side: WallSide,
+  desiredOffset: number,
+  walls: Wall[],
+  distanceFromWall = 0,
+): WallFit {
+  const frame = wallFrame(wall)
+  const normal = side === 'left' ? frame.leftNormal : { x: -frame.leftNormal.x, y: -frame.leftNormal.y }
+  const { min: minAlong, max: maxAlong } = wallAnchorOffsetLimits(item, wall, walls, side, distanceFromWall)
+  const offset = Math.min(Math.max(desiredOffset, minAlong), maxAlong)
+  const anchor: WallAnchor = { wallId: wall.id, side, offset, distance: distanceFromWall }
+
+  return {
+    placement: {
+      position: positionFromWallAnchor({ ...item, wallAnchor: anchor }, wall, anchor),
+      rotation: rotationFacingWall(wall, side),
+      wallAnchor: anchor,
+    },
+    wall,
+    side,
+    origin: wall.start,
+    axis: frame.axis,
+    normal,
+    across: wall.thickness / 2 + item.params.depth / 2 + distanceFromWall,
+    distance: distanceFromWall,
+    minAlong,
+    maxAlong,
+  }
+}
+
 /**
  * Ставит блок задней стенкой к ближайшей стене и разворачивает по ней.
  * Возвращает null, если подходящей стены рядом нет.
  */
 function snapToWall(item: FurnitureItem, position: Point, room: Room, roomCenter: Point): WallFit | null {
   let best: { wall: Wall; projection: Point; distance: number } | null = null
+  let current: { wall: Wall; projection: Point; distance: number } | null = null
 
   for (const wall of room.walls) {
     if (wallLength(wall) < 1) continue
     const projection = closestPointOnSegment(position, wall.start, wall.end)
     const d = distance(position, projection)
     if (d > item.params.depth / 2 + WALL_GRAB) continue
+    if (wall.id === item.wallAnchor?.wallId) current = { wall, projection, distance: d }
     if (!best || d < best.distance) best = { wall, projection, distance: d }
   }
   if (!best) return null
 
-  const normal = inwardWallNormal(best.wall, roomCenter)
-  const offset = best.wall.thickness / 2 + item.params.depth / 2
-  const angle = wallAngle(best.wall)
-  const axis = { x: Math.cos(angle), y: Math.sin(angle) }
-  const half = item.params.width / 2
-  const length = wallLength(best.wall)
-  const along = (best.projection.x - best.wall.start.x) * axis.x + (best.projection.y - best.wall.start.y) * axis.y
-  const clamped = Math.min(Math.max(along, half), Math.max(half, length - half))
+  if (current && current.distance <= best.distance + REHOST_HYSTERESIS) best = current
 
-  return {
-    placement: {
-      position: {
-        x: best.wall.start.x + axis.x * clamped + normal.x * offset,
-        y: best.wall.start.y + axis.y * clamped + normal.y * offset,
-      },
-      rotation: rotationFacing(normal),
-    },
-    origin: best.wall.start,
-    axis,
-    normal,
-    offset,
-    minAlong: half,
-    maxAlong: Math.max(half, length - half),
-  }
+  const side = wallInteriorSide(best.wall, roomCenter)
+  const frame = wallFrame(best.wall)
+  const along =
+    (best.projection.x - best.wall.start.x) * frame.axis.x + (best.projection.y - best.wall.start.y) * frame.axis.y
+  return fitToWall(item, best.wall, side, along, room.walls)
 }
 
 /**
@@ -108,8 +131,33 @@ function keepOnWall(position: Point, fit: WallFit): Point {
   const rawAlong = (position.x - fit.origin.x) * fit.axis.x + (position.y - fit.origin.y) * fit.axis.y
   const along = Math.min(Math.max(rawAlong, fit.minAlong), fit.maxAlong)
   return {
-    x: fit.origin.x + fit.axis.x * along + fit.normal.x * fit.offset,
-    y: fit.origin.y + fit.axis.y * along + fit.normal.y * fit.offset,
+    x: fit.origin.x + fit.axis.x * along + fit.normal.x * fit.across,
+    y: fit.origin.y + fit.axis.y * along + fit.normal.y * fit.across,
+  }
+}
+
+function finishWallPlacement(
+  item: FurnitureItem,
+  fit: WallFit,
+  room: Room,
+  others: FurnitureItem[],
+  roomCenter: Point,
+): Placement {
+  const neighbour = snapToNeighbour(item, fit.placement, others)
+  const aligned = neighbour ?? fit.placement
+  let resolved = aligned
+  // Вытеснение из проёма может привести к соседу и наоборот, поэтому даём
+  // двум системам ограничений несколько коротких проходов для стабилизации.
+  for (let pass = 0; pass < 3; pass++) {
+    resolved = resolveOverlap(item, resolved, others)
+    resolved = resolveOpeningOverlap(item, resolved, room, roomCenter)
+  }
+
+  const position = keepOnWall(resolved.position, fit)
+  return {
+    position,
+    rotation: normalizeAngle(fit.placement.rotation),
+    wallAnchor: anchorAtPosition(fit.wall, fit.side, position, fit.distance),
   }
 }
 
@@ -222,7 +270,9 @@ export function placeBlock(
   }
 
   const wallFit = snapToWall(item, position, room, roomCenter)
-  const base: Placement = wallFit?.placement ?? { position, rotation: item.rotation }
+  if (wallFit) return finishWallPlacement(item, wallFit, room, others, roomCenter)
+
+  const base: Placement = { position, rotation: item.rotation }
   const neighbour = snapToNeighbour(item, base, others)
   const aligned = neighbour ?? { position: snapPoint(base.position, GRID_STEP), rotation: base.rotation }
   let resolved = aligned
@@ -233,10 +283,31 @@ export function placeBlock(
     resolved = resolveOpeningOverlap(item, resolved, room, roomCenter)
   }
 
-  return {
-    position: wallFit ? keepOnWall(resolved.position, wallFit) : resolved.position,
-    rotation: normalizeAngle(resolved.rotation),
-  }
+  return { position: resolved.position, rotation: normalizeAngle(resolved.rotation) }
+}
+
+/**
+ * Переставляет уже привязанный блок на конкретной стене. Используется после
+ * изменения его габаритов: стена не выбирается заново, но углы и соседние
+ * блоки учитываются так же, как при перетаскивании.
+ */
+export function placeBlockOnWall(
+  item: FurnitureItem,
+  wallId: string,
+  offset: number,
+  room: Room,
+  others: FurnitureItem[],
+  roomCenter: Point,
+  snapEnabled: boolean,
+): Placement {
+  const wall = room.walls.find((candidate) => candidate.id === wallId)
+  if (!wall) return { position: item.position, rotation: item.rotation }
+
+  const sameWall = item.wallAnchor?.wallId === wall.id
+  const side = sameWall && item.wallAnchor ? item.wallAnchor.side : wallInteriorSide(wall, roomCenter)
+  const distanceFromWall = sameWall && item.wallAnchor ? item.wallAnchor.distance : 0
+  const fit = fitToWall(item, wall, side, offset, room.walls, distanceFromWall)
+  return snapEnabled ? finishWallPlacement(item, fit, room, others, roomCenter) : fit.placement
 }
 
 export type SectionPlacement = Placement & { elevation: number }
@@ -248,25 +319,39 @@ export type SectionPlacement = Placement & { elevation: number }
  */
 export function placeBlockInSection(
   item: FurnitureItem,
-  x: number,
+  wallId: string,
+  displayOffset: number,
   elevation: number,
   room: Room,
   others: FurnitureItem[],
   roomCenter: Point,
   snapEnabled: boolean,
 ): SectionPlacement {
+  const wall = room.walls.find((candidate) => candidate.id === wallId)
+  if (!wall) return { position: item.position, rotation: item.rotation, elevation: item.elevation }
+
   const raised = Math.max(0, elevation)
-  const position = { x, y: item.position.y }
+  const rawDisplayOffset = snap(displayOffset, GRID_STEP)
+  const side = item.wallAnchor?.wallId === wall.id ? item.wallAnchor.side : wallInteriorSide(wall, roomCenter)
+  const offset = displayToWallOffset(rawDisplayOffset, wall, side)
+  const wallPlacement = placeBlockOnWall(item, wall.id, offset, room, others, roomCenter, false)
 
   if (!snapEnabled) {
     return {
-      position: snapPoint(position, GRID_STEP),
-      rotation: item.rotation,
+      ...wallPlacement,
       elevation: snap(raised, GRID_STEP),
     }
   }
 
-  const snapped = snapElevation({ ...item, position }, raised, others)
-  const placement = placeBlock({ ...item, elevation: snapped }, position, room, others, roomCenter, true)
-  return { ...placement, elevation: snapped }
+  const snapped = snapElevation({ ...item, position: wallPlacement.position }, raised, others)
+  const snappedPlacement = placeBlockOnWall(
+    { ...item, elevation: snapped },
+    wall.id,
+    offset,
+    room,
+    others,
+    roomCenter,
+    true,
+  )
+  return { ...snappedPlacement, elevation: snapped }
 }

@@ -5,11 +5,12 @@ import { wallCenter, wallLength } from '../../../shared/utils/geometry'
 type Props = {
   wall: Wall
   selected: boolean
+  highlighted?: boolean
   scale: number
   onSelect: () => void
 }
 
-export function WallShape({ wall, selected, scale, onSelect }: Props) {
+export function WallShape({ wall, selected, highlighted = false, scale, onSelect }: Props) {
   const center = wallCenter(wall)
   const length = Math.round(wallLength(wall))
 
@@ -18,7 +19,7 @@ export function WallShape({ wall, selected, scale, onSelect }: Props) {
       <Line
         name="room-wall"
         points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
-        stroke={selected ? '#2563eb' : '#64748b'}
+        stroke={selected ? '#2563eb' : highlighted ? '#10b981' : '#64748b'}
         strokeWidth={wall.thickness}
         hitStrokeWidth={Math.max(wall.thickness, 24 / scale)}
         lineCap="butt"

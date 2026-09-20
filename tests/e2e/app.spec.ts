@@ -74,6 +74,7 @@ test('keeps utility requirements on the lower sink host only', async ({ page }) 
     elevation: 1200,
     rotation: 0,
     params: { ...cabinetParams, height: 700, depth: 320 },
+    wallAnchor: { wallId: 'top', side: 'left', offset: 1800, distance: 0 },
   }
   const sink = {
     id: 'sink',
@@ -90,6 +91,7 @@ test('keeps utility requirements on the lower sink host only', async ({ page }) 
     elevation: 0,
     rotation: 0,
     params: cabinetParams,
+    wallAnchor: { wallId: 'top', side: 'left', offset: 1800, distance: 0 },
   }
   const utilities = ['water', 'sewer'].map((type) => ({
     id: type,
@@ -117,7 +119,7 @@ test('keeps utility requirements on the lower sink host only', async ({ page }) 
   })
   await expect(page.locator('aside')).toContainText('Подключения совместимы: Вода, Канализация')
 
-  await page.getByRole('button', { name: 'Вид спереди', exact: true }).click()
+  await page.getByRole('button', { name: 'Фасад стены', exact: true }).click()
   const elevation = page.getByTestId('elevation-editor').locator('.konvajs-content')
   await expect(elevation).toBeVisible()
   const elevationBox = await elevation.boundingBox()
@@ -140,4 +142,18 @@ test('exposes and toggles smart placement', async ({ page }) => {
   await expect(toggle).toBeChecked()
   await toggle.uncheck()
   await expect(toggle).not.toBeChecked()
+})
+
+test('opens the selected wall elevation and switches between walls', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [],
+    viewMode: '2d',
+    elevationWallId: 'right',
+  })
+
+  await page.getByRole('button', { name: 'Фасад стены', exact: true }).click()
+  await expect(page.getByText('Стена 2 из 4 · 3000 мм')).toBeVisible()
+  await page.getByRole('button', { name: '›', exact: true }).click()
+  await expect(page.getByText('Стена 3 из 4 · 3600 мм')).toBeVisible()
 })

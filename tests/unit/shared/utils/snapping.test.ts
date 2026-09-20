@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { blocksOpening } from '../../../../src/modules/validation/rules'
-import { placeBlock } from '../../../../src/shared/utils/snapping'
+import { placeBlock, placeBlockInSection } from '../../../../src/shared/utils/snapping'
 import { makeFurniture, makeOpening, makeRoom } from '../../../fixtures'
 
 const roomCenter = { x: 1800, y: 1500 }
@@ -17,6 +17,39 @@ describe('placeBlock', () => {
     const result = placeBlock(cabinet, { x: 1000, y: 200 }, makeRoom(), [], roomCenter, true)
     expect(result.position).toEqual({ x: 1000, y: 330 })
     expect(result.rotation).toBe(0)
+    expect(result.wallAnchor).toEqual({ wallId: 'top', side: 'left', offset: 1000, distance: 0 })
+  })
+
+  it('stops a wide cabinet at the inner face of a corner wall', () => {
+    const cabinet = makeFurniture('cabinet', { params: { ...makeFurniture().params, width: 1200 } })
+    const result = placeBlock(cabinet, { x: 300, y: 200 }, makeRoom(), [], roomCenter, true)
+
+    expect(result.position).toEqual({ x: 650, y: 330 })
+    expect(result.wallAnchor).toEqual({ wallId: 'top', side: 'left', offset: 650, distance: 0 })
+  })
+
+  it('uses wall-local coordinates in an elevation of a side wall', () => {
+    const cabinet = makeFurniture('cabinet', {
+      wallAnchor: { wallId: 'right', side: 'left', offset: 1000, distance: 0 },
+    })
+    const result = placeBlockInSection(cabinet, 'right', 1500, 0, makeRoom(), [], roomCenter, true)
+    expect(result.position).toEqual({ x: 3270, y: 1500 })
+    expect(result.rotation).toBe(90)
+    expect(result.wallAnchor).toEqual({ wallId: 'right', side: 'left', offset: 1500, distance: 0 })
+  })
+
+  it('does not unexpectedly switch the attached wall near a corner', () => {
+    const cabinet = makeFurniture('cabinet', {
+      position: { x: 3300, y: 330 },
+      wallAnchor: { wallId: 'top', side: 'left', offset: 3300, distance: 0 },
+    })
+
+    const nearCorner = placeBlock(cabinet, { x: 3500, y: 200 }, makeRoom(), [], roomCenter, true)
+    expect(nearCorner.wallAnchor?.wallId).toBe('top')
+    expect(nearCorner.wallAnchor?.offset).toBe(3250)
+
+    const clearlyOnRight = placeBlock(cabinet, { x: 3550, y: 300 }, makeRoom(), [], roomCenter, true)
+    expect(clearlyOnRight.wallAnchor?.wallId).toBe('right')
   })
 
   it('allows a floor cabinet below a window sill', () => {

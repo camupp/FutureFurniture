@@ -3,6 +3,7 @@ import { blocksOverlap, footprintsOverlap, isBuiltIn } from '../../shared/utils/
 import { bounds, itemFootprint, pointInPolygon, roomPolygon } from '../../shared/utils/geometry'
 import { clampOffset, openingObstaclePolygons } from '../../shared/utils/openings'
 import { utilityPoint } from '../../shared/utils/utilities'
+import { wallAnchorIsValid } from '../../shared/utils/wallAnchors'
 
 /** Свободная зона вокруг вывода, необходимая для доступа и подключения. */
 export const UTILITY_CLEARANCE = 150
@@ -174,7 +175,12 @@ export function invalidUtilityIds(room: Room): Set<string> {
 export function invalidItemIds(furniture: FurnitureItem[], room: Room): Set<string> {
   const invalid = new Set<string>()
   for (const item of furniture) {
-    if (!isItemInsideRoom(item, room) || collides(item, furniture) || blocksOpening(item, room)) {
+    if (
+      !wallAnchorIsValid(item, room) ||
+      !isItemInsideRoom(item, room) ||
+      collides(item, furniture) ||
+      blocksOpening(item, room)
+    ) {
       invalid.add(item.id)
     }
   }

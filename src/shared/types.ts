@@ -188,6 +188,22 @@ export const blockParamsSchema = z.object({
 })
 export type BlockParams = z.infer<typeof blockParamsSchema>
 
+export const WALL_SIDES = ['left', 'right'] as const
+export type WallSide = (typeof WALL_SIDES)[number]
+
+/**
+ * Положение пристенного блока в локальной системе стены.
+ * `offset` измеряется от начала стены до центра блока, `distance` — зазор между
+ * внутренней поверхностью стены и задней гранью мебели.
+ */
+export const wallAnchorSchema = z.object({
+  wallId: z.string(),
+  side: z.enum(WALL_SIDES),
+  offset: z.number(),
+  distance: z.number().min(0).default(0),
+})
+export type WallAnchor = z.infer<typeof wallAnchorSchema>
+
 export const furnitureItemSchema = z.object({
   id: z.string(),
   /** Тип определяет геометрию внутри габаритного ящика. */
@@ -199,6 +215,8 @@ export const furnitureItemSchema = z.object({
   /** Градусы по часовой стрелке на плане. 0 — фасад смотрит в сторону +y. */
   rotation: z.number(),
   params: blockParamsSchema,
+  /** Заполняется только у мебели, которую пользователь прикрепил к стене. */
+  wallAnchor: wallAnchorSchema.optional(),
 })
 export type FurnitureItem = z.infer<typeof furnitureItemSchema>
 
