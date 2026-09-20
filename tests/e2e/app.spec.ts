@@ -1,0 +1,143 @@
+import { expect, test, type Page } from '@playwright/test'
+
+const roomWalls = [
+  { id: 'top', start: { x: 0, y: 0 }, end: { x: 3600, y: 0 }, thickness: 100 },
+  { id: 'right', start: { x: 3600, y: 0 }, end: { x: 3600, y: 3000 }, thickness: 100 },
+  { id: 'bottom', start: { x: 3600, y: 3000 }, end: { x: 0, y: 3000 }, thickness: 100 },
+  { id: 'left', start: { x: 0, y: 3000 }, end: { x: 0, y: 0 }, thickness: 100 },
+]
+
+const cabinetParams = { width: 600, height: 820, depth: 560, facadeColor: '#d6c09a' }
+
+async function openProject(page: Page, state?: Record<string, unknown>) {
+  await page.goto('/')
+  await page.evaluate((projectState) => {
+    localStorage.clear()
+    if (projectState) {
+      localStorage.setItem('future-furniture-project', JSON.stringify({ state: projectState, version: 0 }))
+    }
+  }, state)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Замер кухни' })).toBeVisible()
+}
+
+async function planSurface(page: Page) {
+  const surface = page.getByTestId('room-editor').locator('.konvajs-content')
+  await expect(surface).toBeVisible()
+  return surface
+}
+
+test('opens the floor menu and persists a floor sewer outlet', async ({ page }) => {
+  await openProject(page)
+  const surface = await planSurface(page)
+  const box = await surface.boundingBox()
+  expect(box).not.toBeNull()
+
+  await surface.click({ button: 'right', position: { x: box!.width / 2, y: box!.height / 2 } })
+  await expect(page.getByRole('menu', { name: 'Добавить на пол' })).toBeVisible()
+  await page.getByRole('menuitem', { name: /Канализация/ }).click()
+
+  await expect(page.locator('aside')).toContainText('Крепление: пол')
+  await page.reload()
+  const outputCount = page.getByText('Выводов', { exact: true }).locator('xpath=following-sibling::dd[1]')
+  await expect(outputCount).toHaveText('1')
+})
+
+test('opens the wall menu and creates an opening', async ({ page }) => {
+  await openProject(page, {
+    room: {
+      walls: [{ id: 'wall', start: { x: 1000, y: 1500 }, end: { x: 3000, y: 1500 }, thickness: 100 }],
+      wallHeight: 2700,
+      openings: [],
+      utilities: [],
+    },
+    furniture: [],
+    viewMode: '2d',
+  })
+  const surface = await planSurface(page)
+  const box = await surface.boundingBox()
+  expect(box).not.toBeNull()
+
+  await surface.click({ button: 'right', position: { x: box!.width / 2, y: box!.height / 2 } })
+  await expect(page.getByRole('menu', { name: 'Добавить на стену' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Дверь' })).toBeVisible()
+  await page.getByRole('menuitem', { name: 'Окно' }).click()
+  await expect(page.locator('aside')).toContainText('Окно')
+  await expect(page.locator('aside')).toContainText('Низ от пола')
+})
+
+test('keeps utility requirements on the lower sink host only', async ({ page }) => {
+  const upper = {
+    id: 'upper',
+    type: 'cabinet',
+    position: { x: 1800, y: 330 },
+    elevation: 1200,
+    rotation: 0,
+    params: { ...cabinetParams, height: 700, depth: 320 },
+  }
+  const sink = {
+    id: 'sink',
+    type: 'sink',
+    position: { x: 1800, y: 330 },
+    elevation: 690,
+    rotation: 0,
+    params: { width: 600, height: 180, depth: 500, facadeColor: '#aeb4bd' },
+  }
+  const lower = {
+    id: 'lower',
+    type: 'cabinet',
+    position: { x: 1800, y: 330 },
+    elevation: 0,
+    rotation: 0,
+    params: cabinetParams,
+  }
+  const utilities = ['water', 'sewer'].map((type) => ({
+    id: type,
+    type,
+    point: { x: 1800, y: 100 },
+    height: 0,
+    mount: { kind: 'floor' },
+  }))
+
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities },
+    furniture: [upper, sink, lower],
+    viewMode: '2d',
+  })
+
+  const surface = await planSurface(page)
+  const box = await surface.boundingBox()
+  expect(box).not.toBeNull()
+  const scale = Math.min(box!.width / 4800, box!.height / 4200)
+  await surface.click({
+    position: {
+      x: box!.width / 2,
+      y: box!.height / 2 - 1000 * scale,
+    },
+  })
+  await expect(page.locator('aside')).toContainText('Подключения совместимы: Вода, Канализация')
+
+  await page.getByRole('button', { name: 'Вид спереди', exact: true }).click()
+  const elevation = page.getByTestId('elevation-editor').locator('.konvajs-content')
+  await expect(elevation).toBeVisible()
+  const elevationBox = await elevation.boundingBox()
+  expect(elevationBox).not.toBeNull()
+  const elevationScale = Math.min(elevationBox!.width / 4800, elevationBox!.height / 3900)
+  await elevation.click({
+    position: {
+      x: elevationBox!.width / 2,
+      y: elevationBox!.height / 2 - 200 * elevationScale,
+    },
+  })
+  await expect(page.locator('aside')).toContainText('Шкаф')
+  await expect(page.locator('aside')).not.toContainText('Для мойки')
+  await expect(page.locator('aside')).not.toContainText('Подключения совместимы')
+})
+
+test('exposes and toggles smart placement', async ({ page }) => {
+  await openProject(page)
+  const toggle = page.getByLabel('Умная расстановка')
+  await expect(toggle).toBeChecked()
+  await toggle.uncheck()
+  await expect(toggle).not.toBeChecked()
+})

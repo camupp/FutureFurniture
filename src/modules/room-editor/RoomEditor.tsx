@@ -60,15 +60,10 @@ export function RoomEditor() {
   const removeOpening = useAppStore((s) => s.removeOpening)
   const removeUtility = useAppStore((s) => s.removeUtility)
 
-  const {
-    view,
-    fitTo,
-    zoomBy,
-    handleWheel,
-    handleStageDragEnd,
-    handleTouchMove,
-    handleTouchEnd,
-  } = useStageViewport(width, height)
+  const { view, fitTo, zoomBy, handleWheel, handleStageDragEnd, handleTouchMove, handleTouchEnd } = useStageViewport(
+    width,
+    height,
+  )
   const [draft, setDraft] = useState<Point | null>(null)
   const [cursor, setCursor] = useState<Point | null>(null)
   const [addMenu, setAddMenu] = useState<AddContextTarget | null>(null)
@@ -338,7 +333,7 @@ export function RoomEditor() {
   const draftLength = draft && cursor ? Math.round(distance(draft, cursor)) : 0
 
   return (
-    <div ref={containerRef} className="relative min-w-0 flex-1 overflow-hidden bg-slate-50">
+    <div ref={containerRef} data-testid="room-editor" className="relative min-w-0 flex-1 overflow-hidden bg-slate-50">
       {/* Konva не умеет рисовать в холст нулевого размера — ждём первый замер контейнера. */}
       {width > 0 && height > 0 && (
         <Stage
@@ -398,8 +393,7 @@ export function RoomEditor() {
                   draggable={tool === 'select'}
                   scale={view.scale}
                   inwardSign={
-                    (roomCenter.x - (wall.start.x + wall.end.x) / 2) *
-                        (-(wall.end.y - wall.start.y)) +
+                    (roomCenter.x - (wall.start.x + wall.end.x) / 2) * -(wall.end.y - wall.start.y) +
                       (roomCenter.y - (wall.start.y + wall.end.y) / 2) * (wall.end.x - wall.start.x) >=
                     0
                       ? 1
@@ -444,9 +438,7 @@ export function RoomEditor() {
               )
             })}
 
-            {draft && (
-              <Circle x={draft.x} y={draft.y} radius={6 / view.scale} fill="#2563eb" listening={false} />
-            )}
+            {draft && <Circle x={draft.x} y={draft.y} radius={6 / view.scale} fill="#2563eb" listening={false} />}
             {draft && cursor && (
               <>
                 <Line

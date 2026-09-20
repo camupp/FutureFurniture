@@ -239,13 +239,7 @@ function OpeningMesh({
       {opening.type === 'window' && (
         <mesh position={[0, 0, 0]}>
           <boxGeometry args={[w - frame * 2, h - frame * 2, mmToM(6)]} />
-          <meshStandardMaterial
-            color="#bcd7e6"
-            transparent
-            opacity={0.35}
-            roughness={0.1}
-            metalness={0.1}
-          />
+          <meshStandardMaterial color="#bcd7e6" transparent opacity={0.35} roughness={0.1} metalness={0.1} />
         </mesh>
       )}
 

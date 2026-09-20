@@ -7,17 +7,8 @@ import type { BlockParams } from '../../shared/types'
  * `height` означает толщину плиты. Вырезы под мойку и плиту вычитаются
  * из полотна — без них врезная техника пересекала бы столешницу.
  */
-export function Countertop({
-  width,
-  height,
-  depth,
-  facadeColor,
-  cutouts = [],
-}: BlockParams & { cutouts?: Cutout[] }) {
-  const geometry = useMemo(
-    () => buildSlab(width, depth, height, cutouts),
-    [width, height, depth, cutouts],
-  )
+export function Countertop({ width, height, depth, facadeColor, cutouts = [] }: BlockParams & { cutouts?: Cutout[] }) {
+  const geometry = useMemo(() => buildSlab(width, depth, height, cutouts), [width, height, depth, cutouts])
 
   useEffect(() => () => geometry.dispose(), [geometry])
 

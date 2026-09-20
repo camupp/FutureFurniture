@@ -17,7 +17,17 @@ type Props = {
 }
 
 /** Вывод коммуникаций: кружок с обозначением и отметкой высоты, как на инженерном плане. */
-export function UtilityShape({ utility, point, selected, invalid, connected, draggable, scale, onSelect, onMove }: Props) {
+export function UtilityShape({
+  utility,
+  point,
+  selected,
+  invalid,
+  connected,
+  draggable,
+  scale,
+  onSelect,
+  onMove,
+}: Props) {
   const color = UTILITY_COLORS[utility.type]
   const radius = MARKER_RADIUS_PX / scale
   const symbol = { water: 'В', sewer: 'К', gas: 'Г', vent: 'Вн', power: 'Р' }[utility.type]
@@ -60,15 +70,7 @@ export function UtilityShape({ utility, point, selected, invalid, connected, dra
           listening={false}
         />
       )}
-      <Label
-        x={0}
-        y={0}
-        scaleX={1 / scale}
-        scaleY={1 / scale}
-        offsetX={-14}
-        offsetY={8}
-        listening={false}
-      >
+      <Label x={0} y={0} scaleX={1 / scale} scaleY={1 / scale} offsetX={-14} offsetY={8} listening={false}>
         <Tag fill="#ffffff" opacity={0.9} cornerRadius={3} />
         <Text
           text={`${UTILITY_LABELS[utility.type]} · ${utility.mount.kind === 'wall' ? `↑${utility.height}` : 'пол'}`}

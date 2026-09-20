@@ -91,11 +91,7 @@ export type UtilityAssessment = { connected: Utility[]; warnings: string[] }
  * воду/канализацию, база с панелью — газ. Несвязанный или недостающий вывод даёт
  * предупреждение, но не превращает корректную геометрию мебели в красную ошибку.
  */
-export function assessUtilities(
-  item: FurnitureItem,
-  furniture: FurnitureItem[],
-  room: Room,
-): UtilityAssessment {
+export function assessUtilities(item: FurnitureItem, furniture: FurnitureItem[], room: Room): UtilityAssessment {
   if (isBuiltIn(item)) return { connected: [], warnings: [] }
 
   const covered = room.utilities.filter((utility) => touchesUtility(item, utility, room))
@@ -168,7 +164,9 @@ export function invalidUtilityIds(room: Room): Set<string> {
   const polygon = roomPolygon(room.walls)
   if (polygon.length < 3) return new Set()
   return new Set(
-    room.utilities.filter((utility: Utility) => !pointInPolygon(utilityPoint(utility, room), polygon)).map((utility) => utility.id),
+    room.utilities
+      .filter((utility: Utility) => !pointInPolygon(utilityPoint(utility, room), polygon))
+      .map((utility) => utility.id),
   )
 }
 
@@ -176,11 +174,7 @@ export function invalidUtilityIds(room: Room): Set<string> {
 export function invalidItemIds(furniture: FurnitureItem[], room: Room): Set<string> {
   const invalid = new Set<string>()
   for (const item of furniture) {
-    if (
-      !isItemInsideRoom(item, room) ||
-      collides(item, furniture) ||
-      blocksOpening(item, room)
-    ) {
+    if (!isItemInsideRoom(item, room) || collides(item, furniture) || blocksOpening(item, room)) {
       invalid.add(item.id)
     }
   }

@@ -51,9 +51,7 @@ export function App() {
       <header className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-2.5">
         <h1 className="text-sm font-semibold">Замер кухни</h1>
         <div className="flex items-center gap-2">
-          {viewMode !== '3d' && (
-            <SegmentedControl options={EDITOR_VIEWS} value={editorView} onChange={setEditorView} />
-          )}
+          {viewMode !== '3d' && <SegmentedControl options={EDITOR_VIEWS} value={editorView} onChange={setEditorView} />}
           <SegmentedControl options={VIEW_MODES} value={viewMode} onChange={setViewMode} />
           <button
             type="button"
@@ -100,10 +98,7 @@ export function App() {
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: UTILITY_COLORS[type] }}
-                    />
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: UTILITY_COLORS[type] }} />
                     {UTILITY_LABELS[type]}
                   </button>
                 ))}

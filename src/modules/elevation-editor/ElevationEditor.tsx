@@ -34,15 +34,10 @@ export function ElevationEditor() {
   const moveUtility = useAppStore((s) => s.moveUtility)
   const updateUtility = useAppStore((s) => s.updateUtility)
 
-  const {
-    view,
-    fitTo,
-    zoomBy,
-    handleWheel,
-    handleStageDragEnd,
-    handleTouchMove,
-    handleTouchEnd,
-  } = useStageViewport(width, height)
+  const { view, fitTo, zoomBy, handleWheel, handleStageDragEnd, handleTouchMove, handleTouchEnd } = useStageViewport(
+    width,
+    height,
+  )
 
   const invalid = useMemo(() => invalidItemIds(furniture, room), [furniture, room])
   const warnings = useMemo(() => warningItemIds(furniture, room), [furniture, room])
@@ -113,7 +108,11 @@ export function ElevationEditor() {
   }, [room.wallHeight])
 
   return (
-    <div ref={containerRef} className="relative min-w-0 flex-1 overflow-hidden bg-slate-50">
+    <div
+      ref={containerRef}
+      data-testid="elevation-editor"
+      className="relative min-w-0 flex-1 overflow-hidden bg-slate-50"
+    >
       {/* Konva не умеет рисовать в холст нулевого размера — ждём первый замер контейнера. */}
       {width > 0 && height > 0 && (
         <Stage
@@ -152,14 +151,7 @@ export function ElevationEditor() {
                   strokeWidth={1}
                   strokeScaleEnabled={false}
                 />
-                <Label
-                  x={roomBox.minX}
-                  y={-h}
-                  scaleX={1 / view.scale}
-                  scaleY={1 / view.scale}
-                  offsetX={38}
-                  offsetY={8}
-                >
+                <Label x={roomBox.minX} y={-h} scaleX={1 / view.scale} scaleY={1 / view.scale} offsetX={38} offsetY={8}>
                   <Tag fill="#ffffff" opacity={0.9} cornerRadius={3} />
                   <Text text={String(h)} fontSize={11} padding={2} width={34} align="right" fill="#64748b" />
                 </Label>

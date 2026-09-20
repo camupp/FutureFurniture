@@ -31,9 +31,7 @@ function useCutouts(item: FurnitureItem, others: FurnitureItem[]): Cutout[] {
 
     return others.flatMap((other) => {
       if (!isBuiltIn(other)) return []
-      const localCorners = itemFootprint(other).map((corner) =>
-        rotatePoint(corner, item.position, -item.rotation),
-      )
+      const localCorners = itemFootprint(other).map((corner) => rotatePoint(corner, item.position, -item.rotation))
       const box = bounds(localCorners)
       const x = box.center.x - item.position.x
       const z = box.center.y - item.position.y

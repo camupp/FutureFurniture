@@ -45,8 +45,7 @@ export function OpeningShape({
   const maxOffset = Math.max(half, wallLength(wall) - half)
   const stroke = invalid ? '#dc2626' : selected ? '#2563eb' : '#0f172a'
   const hingeX = opening.hinge === 'left' ? -half : half
-  const arcRotation =
-    inwardSign > 0 ? (opening.hinge === 'left' ? 0 : 90) : opening.hinge === 'left' ? -90 : 180
+  const arcRotation = inwardSign > 0 ? (opening.hinge === 'left' ? 0 : 90) : opening.hinge === 'left' ? -90 : 180
 
   const constrain = (node: Konva.Node) => {
     node.y(0)

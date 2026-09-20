@@ -196,9 +196,7 @@ export const useAppStore = create<AppState>()(
             (state.selection?.kind === 'utility' &&
               state.room.utilities.some(
                 (utility) =>
-                  utility.id === state.selection?.id &&
-                  utility.mount.kind === 'wall' &&
-                  utility.mount.wallId === id,
+                  utility.id === state.selection?.id && utility.mount.kind === 'wall' && utility.mount.wallId === id,
               ))
               ? null
               : state.selection,
@@ -367,9 +365,7 @@ export const useAppStore = create<AppState>()(
           const moved = { ...item, position: placement.position, rotation: placement.rotation }
           const elevation = state.smartPlacement ? snapElevation(moved, item.elevation, others) : item.elevation
           return {
-            furniture: state.furniture.map((candidate) =>
-              candidate.id === id ? { ...moved, elevation } : candidate,
-            ),
+            furniture: state.furniture.map((candidate) => (candidate.id === id ? { ...moved, elevation } : candidate)),
           }
         }),
 
@@ -466,9 +462,7 @@ export const selectedFurniture = (state: AppState) =>
     : null
 
 export const selectedWall = (state: AppState) =>
-  state.selection?.kind === 'wall'
-    ? (state.room.walls.find((wall) => wall.id === state.selection!.id) ?? null)
-    : null
+  state.selection?.kind === 'wall' ? (state.room.walls.find((wall) => wall.id === state.selection!.id) ?? null) : null
 
 export const selectedOpening = (state: AppState) =>
   state.selection?.kind === 'opening'

@@ -1,11 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import {
-  selectedFurniture,
-  selectedOpening,
-  selectedUtility,
-  selectedWall,
-  useAppStore,
-} from '../../shared/store'
+import { selectedFurniture, selectedOpening, selectedUtility, selectedWall, useAppStore } from '../../shared/store'
 import {
   BLOCK_LABELS,
   BLOCK_LIMITS,
@@ -73,9 +67,7 @@ function OpeningProperties() {
     <div className="flex flex-col gap-4">
       <p className="text-sm font-medium text-slate-800">{OPENING_LABELS[opening.type]}</p>
       {overlaps && (
-        <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">
-          Проём пересекается с другим проёмом
-        </p>
+        <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Проём пересекается с другим проёмом</p>
       )}
 
       <NumberField
@@ -330,15 +322,11 @@ function BlockProperties() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm font-medium text-slate-800">{BLOCK_LABELS[item.type]}</p>
-      {outside && (
-        <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок выходит за контур стен</p>
-      )}
+      {outside && <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок выходит за контур стен</p>}
       {overlapping && (
         <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок пересекается с другим блоком</p>
       )}
-      {coversOpening && (
-        <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок перекрывает проём</p>
-      )}
+      {coversOpening && <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок перекрывает проём</p>}
       {utilityWarnings.map((warning) => (
         <p key={warning} className="rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
           {warning}

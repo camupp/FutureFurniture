@@ -32,10 +32,7 @@ export function Scene3D() {
   const target: [number, number, number] = [mmToM(box.center.x), mmToM(room.wallHeight) / 2, mmToM(box.center.y)]
   /** Радиус описанной сферы помещения — по нему считается отлёт камеры. */
   const radius =
-    Math.max(
-      Math.hypot(mmToM(box.width), mmToM(box.height), mmToM(room.wallHeight)),
-      mmToM(room.wallHeight),
-    ) / 2
+    Math.max(Math.hypot(mmToM(box.width), mmToM(box.height), mmToM(room.wallHeight)), mmToM(room.wallHeight)) / 2
 
   return (
     <div className="relative min-w-0 flex-1 bg-slate-200">
@@ -88,13 +85,7 @@ export function Scene3D() {
           />
         ))}
 
-        <OrbitControls
-          makeDefault
-          enableDamping
-          maxPolarAngle={Math.PI / 2 - 0.05}
-          minDistance={1}
-          maxDistance={40}
-        />
+        <OrbitControls makeDefault enableDamping maxPolarAngle={Math.PI / 2 - 0.05} minDistance={1} maxDistance={40} />
         <CameraFit target={target} radius={radius} fitKey={fitKey} />
       </Canvas>
 
@@ -135,11 +126,7 @@ function CameraFit({ target, radius, fitKey }: CameraFitProps) {
     const aspect = size.width / size.height
     const fov = degToRad(camera.fov)
     const distance = Math.max((radius / Math.sin(fov / 2) / Math.min(1, aspect)) * 1.1, 3)
-    camera.position.set(
-      target[0] + distance * 0.6,
-      target[1] + distance * 0.55,
-      target[2] + distance * 0.6,
-    )
+    camera.position.set(target[0] + distance * 0.6, target[1] + distance * 0.55, target[2] + distance * 0.6)
     if (controls) {
       controls.target.set(target[0], target[1], target[2])
       controls.update()

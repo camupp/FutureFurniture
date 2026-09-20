@@ -105,8 +105,7 @@ function snapToWall(item: FurnitureItem, position: Point, room: Room, roomCenter
  * от стены — после них положение поперёк стены восстанавливается.
  */
 function keepOnWall(position: Point, fit: WallFit): Point {
-  const rawAlong =
-    (position.x - fit.origin.x) * fit.axis.x + (position.y - fit.origin.y) * fit.axis.y
+  const rawAlong = (position.x - fit.origin.x) * fit.axis.x + (position.y - fit.origin.y) * fit.axis.y
   const along = Math.min(Math.max(rawAlong, fit.minAlong), fit.maxAlong)
   return {
     x: fit.origin.x + fit.axis.x * along + fit.normal.x * fit.offset,
@@ -124,12 +123,7 @@ function overlapsOpeningHeight(item: FurnitureItem, opening: Opening): boolean {
  * Выталкивает мебель из полосы окна/двери и сектора открывания двери.
  * Сдвиг идёт вдоль ширины блока, поэтому пристенная мебель остаётся в своём ряду.
  */
-function resolveOpeningOverlap(
-  item: FurnitureItem,
-  placement: Placement,
-  room: Room,
-  roomCenter: Point,
-): Placement {
+function resolveOpeningOverlap(item: FurnitureItem, placement: Placement, room: Room, roomCenter: Point): Placement {
   const axis = widthAxis(placement.rotation)
   const half = item.params.width / 2
   let position = placement.position

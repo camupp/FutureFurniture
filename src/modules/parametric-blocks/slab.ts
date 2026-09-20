@@ -80,9 +80,7 @@ export function panelSegments(width: number, height: number, holes: PanelHole[])
       const maxY = ys[iy + 1]
       const x = (minX + maxX) / 2
       const y = (minY + maxY) / 2
-      const insideHole = clipped.some(
-        (hole) => x > hole.minX && x < hole.maxX && y > hole.minY && y < hole.maxY,
-      )
+      const insideHole = clipped.some((hole) => x > hole.minX && x < hole.maxX && y > hole.minY && y < hole.maxY)
       if (!insideHole) segments.push({ x, y, width: maxX - minX, height: maxY - minY })
     }
   }
