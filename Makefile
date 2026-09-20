@@ -5,7 +5,7 @@ TXT_RESET := \033[0m
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup setup-e2e setup-all dev start preview build typecheck lint lint-fix format format-check test test-watch test-coverage test-e2e check ci audit
+.PHONY: help setup setup-hooks setup-e2e setup-all dev start preview build typecheck lint lint-fix format format-check precommit test test-watch test-coverage test-e2e check ci audit
 
 define section
 @printf '$(TXT_BOLD)$(TXT_MAGENTA)========================= %-16s =========================$(TXT_RESET)\n' '$(1)'
@@ -14,6 +14,7 @@ endef
 help:
 	@printf '$(TXT_BOLD)$(TXT_CYAN)FutureFurniture — доступные команды$(TXT_RESET)\n\n'
 	@printf '  $(TXT_BOLD)make setup$(TXT_RESET)          Установить npm-зависимости из lock-файла\n'
+	@printf '  $(TXT_BOLD)make setup-hooks$(TXT_RESET)    Установить Git hooks вручную\n'
 	@printf '  $(TXT_BOLD)make setup-e2e$(TXT_RESET)      Установить Chromium для Playwright\n'
 	@printf '  $(TXT_BOLD)make setup-all$(TXT_RESET)      Полностью подготовить окружение\n'
 	@printf '  $(TXT_BOLD)make dev$(TXT_RESET)            Запустить dev-сервер\n'
@@ -23,6 +24,7 @@ help:
 	@printf '  $(TXT_BOLD)make lint-fix$(TXT_RESET)       Исправить безопасные lint-ошибки\n'
 	@printf '  $(TXT_BOLD)make format$(TXT_RESET)         Отформатировать код через Prettier\n'
 	@printf '  $(TXT_BOLD)make format-check$(TXT_RESET)   Проверить форматирование без изменений\n'
+	@printf '  $(TXT_BOLD)make precommit$(TXT_RESET)      Запустить pre-commit проверки вручную\n'
 	@printf '  $(TXT_BOLD)make test$(TXT_RESET)           Запустить быстрые тесты Vitest\n'
 	@printf '  $(TXT_BOLD)make test-watch$(TXT_RESET)     Запустить Vitest в watch-режиме\n'
 	@printf '  $(TXT_BOLD)make test-coverage$(TXT_RESET)  Построить отчёт покрытия\n'
@@ -34,6 +36,10 @@ help:
 setup:
 	$(call section,NPM INSTALL)
 	@npm ci
+
+setup-hooks:
+	$(call section,GIT HOOKS)
+	@npm run prepare
 
 setup-e2e:
 	$(call section,PLAYWRIGHT)
@@ -78,6 +84,10 @@ format:
 format-check:
 	$(call section,FORMAT CHECK)
 	@npm run format:check
+
+precommit:
+	$(call section,PRE-COMMIT)
+	@npm run precommit
 
 test:
 	$(call section,VITEST)
