@@ -8,7 +8,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html'],
       include: [
-        'src/shared/utils/{collision,elevation,geometry,openings,snapping,utilities}.ts',
+        'src/shared/utils/{collision,countertops,elevation,geometry,openings,snapping,utilities}.ts',
         'src/modules/validation/rules.ts',
         'src/shared/store.ts',
       ],

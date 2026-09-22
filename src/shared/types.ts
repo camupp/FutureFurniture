@@ -204,6 +204,12 @@ export const wallAnchorSchema = z.object({
 })
 export type WallAnchor = z.infer<typeof wallAnchorSchema>
 
+/** Автоматическая столешница пересчитывается по её несущим тумбам. */
+export const autoCountertopSchema = z.object({
+  supportIds: z.array(z.string()).min(1),
+  frontOverhang: z.number().min(0).max(100).default(40),
+})
+
 export const furnitureItemSchema = z.object({
   id: z.string(),
   /** Тип определяет геометрию внутри габаритного ящика. */
@@ -217,6 +223,7 @@ export const furnitureItemSchema = z.object({
   params: blockParamsSchema,
   /** Заполняется только у мебели, которую пользователь прикрепил к стене. */
   wallAnchor: wallAnchorSchema.optional(),
+  autoCountertop: autoCountertopSchema.optional(),
 })
 export type FurnitureItem = z.infer<typeof furnitureItemSchema>
 

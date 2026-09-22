@@ -126,8 +126,17 @@ export function ElevationEditor() {
 
   const resolvePlacement = useCallback(
     (item: FurnitureItem, x: number, elevation: number) => {
-      if (!activeWall) {
-        return { position: item.position, rotation: item.rotation, elevation: item.elevation, displayX: x }
+      if (!activeWall || item.autoCountertop) {
+        return {
+          position: item.position,
+          rotation: item.rotation,
+          elevation: item.elevation,
+          wallAnchor: item.wallAnchor,
+          displayX:
+            activeWall && item.wallAnchor
+              ? wallOffsetToDisplay(item.wallAnchor.offset, activeWall, item.wallAnchor.side)
+              : x,
+        }
       }
       const placement = placeBlockInSection(
         item,
@@ -135,7 +144,7 @@ export function ElevationEditor() {
         x,
         elevation,
         room,
-        furniture.filter((other) => other.id !== item.id),
+        furniture.filter((other) => other.id !== item.id && !other.autoCountertop?.supportIds.includes(item.id)),
         roomCenter,
         smartPlacement,
       )
@@ -335,7 +344,7 @@ export function ElevationEditor() {
                   key={item.id}
                   x={x}
                   y={-item.elevation}
-                  draggable={tool === 'select'}
+                  draggable={tool === 'select' && !item.autoCountertop}
                   dragBoundFunc={(position) => ({
                     x: clamp(position.x, view.x, view.x + activeWallLength * view.scale),
                     y: clamp(position.y, view.y - maxElevation * view.scale, view.y),
@@ -345,7 +354,7 @@ export function ElevationEditor() {
                   onDragMove={(event) => applyPlacement(event.target)}
                   onDragEnd={(event) => {
                     const placement = applyPlacement(event.target)
-                    dropInSection(item.id, placement.displayX, placement.elevation)
+                    if (!item.autoCountertop) dropInSection(item.id, placement.displayX, placement.elevation)
                   }}
                 >
                   <Rect

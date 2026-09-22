@@ -13,6 +13,7 @@ import {
   WALL_LIMITS,
 } from '../../shared/types'
 import { pointInPolygon, roomPolygon, wallLength } from '../../shared/utils/geometry'
+import { isCountertopSupport } from '../../shared/utils/countertops'
 import { clamp } from '../../shared/utils/units'
 import { utilityPoint } from '../../shared/utils/utilities'
 import { wallAnchorIsValid, wallAnchorOffsetLimits } from '../../shared/utils/wallAnchors'
@@ -311,6 +312,8 @@ function BlockProperties() {
   const moveFurniture = useAppStore((s) => s.moveFurniture)
   const moveFurnitureAlongWall = useAppStore((s) => s.moveFurnitureAlongWall)
   const detachFurniture = useAppStore((s) => s.detachFurniture)
+  const addCountertopForRow = useAppStore((s) => s.addCountertopForRow)
+  const detachCountertop = useAppStore((s) => s.detachCountertop)
   const removeFurniture = useAppStore((s) => s.removeFurniture)
   if (!item) return null
 
@@ -330,6 +333,9 @@ function BlockProperties() {
     item.wallAnchor && anchorWall
       ? wallAnchorOffsetLimits(item, anchorWall, room.walls, item.wallAnchor.side, item.wallAnchor.distance)
       : undefined
+  const automatic = Boolean(item.autoCountertop)
+  const canAddCountertop = isCountertopSupport(item) && Boolean(anchorWall)
+  const hasCountertop = furniture.some((candidate) => candidate.autoCountertop?.supportIds.includes(item.id))
 
   return (
     <div className="flex flex-col gap-4">
@@ -339,10 +345,36 @@ function BlockProperties() {
           <span>Прикреплён к стене {anchorWallIndex + 1}</span>
           <button
             type="button"
+            disabled={automatic}
             onClick={() => detachFurniture(item.id)}
-            className="font-medium underline decoration-emerald-300 underline-offset-2"
+            className="font-medium underline decoration-emerald-300 underline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Отвязать
+          </button>
+        </div>
+      )}
+      {canAddCountertop && (
+        <button
+          type="button"
+          onClick={() => addCountertopForRow(item.id)}
+          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+        >
+          {hasCountertop ? 'Выбрать столешницу' : 'Столешница на ряд'}
+        </button>
+      )}
+      {item.autoCountertop && (
+        <div className="rounded-md bg-blue-50 px-2.5 py-2 text-xs text-blue-800">
+          <p className="font-medium">Автоподгон по ряду</p>
+          <p className="mt-1">
+            Тумб в ряду: {item.autoCountertop.supportIds.length}. Размеры и положение рассчитываются по ряду. Передний
+            свес — {item.autoCountertop.frontOverhang} мм.
+          </p>
+          <button
+            type="button"
+            onClick={() => detachCountertop(item.id)}
+            className="mt-2 font-medium underline decoration-blue-300 underline-offset-2"
+          >
+            Редактировать вручную
           </button>
         </div>
       )}
@@ -372,6 +404,7 @@ function BlockProperties() {
         label={item.type === 'countertop' ? 'Длина' : 'Ширина'}
         value={item.params.width}
         {...limits.width}
+        disabled={automatic}
         onChange={(width) => updateParams(item.id, { width })}
       />
       <NumberField
@@ -384,6 +417,7 @@ function BlockProperties() {
         label="Глубина"
         value={item.params.depth}
         {...limits.depth}
+        disabled={automatic}
         onChange={(depth) => updateParams(item.id, { depth })}
       />
 
@@ -412,8 +446,9 @@ function BlockProperties() {
             <button
               key={angle}
               type="button"
+              disabled={automatic}
               onClick={() => rotateFurniture(item.id, angle)}
-              className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${
+              className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 ${
                 item.rotation === angle
                   ? 'border-blue-500 bg-blue-50 text-blue-700'
                   : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -436,6 +471,7 @@ function BlockProperties() {
           {item.wallAnchor && anchorWall ? (
             <NumberField
               label="От начала"
+              disabled={automatic}
               value={Math.round(item.wallAnchor.offset)}
               min={anchorLimits?.min ?? item.params.width / 2}
               max={anchorLimits?.max ?? item.params.width / 2}
@@ -447,6 +483,7 @@ function BlockProperties() {
             <>
               <NumberField
                 label="X"
+                disabled={automatic}
                 value={Math.round(item.position.x)}
                 min={-50000}
                 max={50000}
@@ -456,6 +493,7 @@ function BlockProperties() {
               />
               <NumberField
                 label="Y"
+                disabled={automatic}
                 value={Math.round(item.position.y)}
                 min={-50000}
                 max={50000}
@@ -467,6 +505,7 @@ function BlockProperties() {
           )}
           <NumberField
             label="Z"
+            disabled={automatic}
             value={item.elevation}
             min={ELEVATION_LIMITS.min}
             max={Math.max(0, room.wallHeight - item.params.height)}
@@ -489,17 +528,18 @@ type NumberFieldProps = {
   max: number
   step: number
   slider?: boolean
+  disabled?: boolean
   onChange: (value: number) => void
 }
 
-function NumberField({ label, value, min, max, step, slider = true, onChange }: NumberFieldProps) {
+function NumberField({ label, value, min, max, step, slider = true, disabled = false, onChange }: NumberFieldProps) {
   // Пока поле редактируют, значение живёт в draft: иначе промежуточный ввод
   // («», «1» вместо «1200») сразу уезжал бы в модель и зажимался по границам.
   const [draft, setDraft] = useState<string | null>(null)
 
   const commit = (raw: string) => {
     const parsed = Number(raw)
-    if (raw.trim() !== '' && Number.isFinite(parsed)) onChange(clamp(parsed, min, max))
+    if (!disabled && raw.trim() !== '' && Number.isFinite(parsed)) onChange(clamp(parsed, min, max))
     setDraft(null)
   }
 
@@ -511,6 +551,7 @@ function NumberField({ label, value, min, max, step, slider = true, onChange }: 
       </span>
       <input
         type="number"
+        disabled={disabled}
         value={draft ?? String(value)}
         min={min}
         max={max}
@@ -521,11 +562,12 @@ function NumberField({ label, value, min, max, step, slider = true, onChange }: 
           if (e.key === 'Enter') e.currentTarget.blur()
           if (e.key === 'Escape') setDraft(null)
         }}
-        className="w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-blue-400 focus:outline-none"
+        className="w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-blue-400 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
       />
       {slider && (
         <input
           type="range"
+          disabled={disabled}
           value={value}
           min={min}
           max={max}
@@ -534,7 +576,7 @@ function NumberField({ label, value, min, max, step, slider = true, onChange }: 
             setDraft(null)
             onChange(Number(e.target.value))
           }}
-          className="mt-1.5 w-full accent-blue-600"
+          className="mt-1.5 w-full accent-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
         />
       )}
     </label>

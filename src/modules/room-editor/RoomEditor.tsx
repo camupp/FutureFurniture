@@ -16,7 +16,7 @@ import {
   invalidUtilityIds,
   warningItemIds,
 } from '../validation/rules'
-import { FurnitureShape } from './components/FurnitureShape'
+import { FurniturePlanLabel, FurnitureShape } from './components/FurnitureShape'
 import { visibleFurnitureLabelIds } from './furnitureLabels'
 import { AddContextMenu, type AddContextTarget } from './components/AddContextMenu'
 import { OpeningShape } from './components/OpeningShape'
@@ -83,6 +83,12 @@ export function RoomEditor() {
     () => visibleFurnitureLabelIds(furniture, selectedFurnitureId),
     [furniture, selectedFurnitureId],
   )
+  // Тумбы остаются доступны для выбора; связанную столешницу можно выбрать за свес
+  // или кнопкой в свойствах тумбы.
+  const furnitureInDrawOrder = useMemo(
+    () => [...furniture.filter((item) => item.autoCountertop), ...furniture.filter((item) => !item.autoCountertop)],
+    [furniture],
+  )
 
   const fitPoints = useMemo(
     () =>
@@ -101,14 +107,16 @@ export function RoomEditor() {
   /** Живой предпросмотр привязки: считается на каждый кадр перетаскивания блока. */
   const resolvePlacement = useCallback(
     (item: FurnitureItem, position: Point) =>
-      placeBlock(
-        item,
-        position,
-        room,
-        furniture.filter((other) => other.id !== item.id),
-        roomCenter,
-        smartPlacement,
-      ),
+      item.autoCountertop
+        ? { position: item.position, rotation: item.rotation, wallAnchor: item.wallAnchor }
+        : placeBlock(
+            item,
+            position,
+            room,
+            furniture.filter((other) => other.id !== item.id && !other.autoCountertop?.supportIds.includes(item.id)),
+            roomCenter,
+            smartPlacement,
+          ),
     [room, furniture, roomCenter, smartPlacement],
   )
 
@@ -413,22 +421,28 @@ export function RoomEditor() {
               )
             })}
 
-            {furniture.map((item) => (
+            {furnitureInDrawOrder.map((item) => (
               <FurnitureShape
                 key={item.id}
                 item={item}
                 selected={selection?.kind === 'furniture' && selection.id === item.id}
                 invalid={invalid.has(item.id)}
                 warning={warnings.has(item.id)}
-                showLabel={visibleFurnitureLabels.has(item.id)}
-                draggable={tool === 'select'}
+                showLabel={!item.autoCountertop && visibleFurnitureLabels.has(item.id)}
+                draggable={tool === 'select' && !item.autoCountertop}
                 scale={view.scale}
                 onSelect={() => tool === 'select' && select({ kind: 'furniture', id: item.id })}
-                onMove={(position) => dropFurniture(item.id, position)}
+                onMove={(position) => !item.autoCountertop && dropFurniture(item.id, position)}
                 onPreview={(placement) => setSnapPreviewWallId(placement?.wallAnchor?.wallId ?? null)}
                 resolve={(position) => resolvePlacement(item, position)}
               />
             ))}
+
+            {furniture
+              .filter((item) => item.autoCountertop && visibleFurnitureLabels.has(item.id))
+              .map((item) => (
+                <FurniturePlanLabel key={item.id} item={item} scale={view.scale} />
+              ))}
 
             {room.utilities.map((utility) => {
               const point = utilityPoint(utility, room)

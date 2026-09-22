@@ -92,28 +92,38 @@ export function FurnitureShape({
           listening={false}
         />
       )}
-      {showLabel && (
-        <Label
-          x={0}
-          y={0}
-          scaleX={1 / scale}
-          scaleY={1 / scale}
-          offsetX={36}
-          offsetY={9}
-          rotation={-item.rotation}
-          listening={false}
-        >
-          <Tag fill="#ffffff" opacity={0.85} cornerRadius={3} />
-          <Text
-            text={item.elevation > 0 ? `${width} ↑${item.elevation}` : String(width)}
-            fontSize={12}
-            padding={3}
-            width={72}
-            align="center"
-            fill="#0f172a"
-          />
-        </Label>
-      )}
+      {showLabel && <FurnitureLabel item={item} scale={scale} rotation={-item.rotation} />}
+    </Group>
+  )
+}
+
+type LabelProps = {
+  item: FurnitureItem
+  scale: number
+  rotation?: number
+}
+
+function FurnitureLabel({ item, scale, rotation = 0 }: LabelProps) {
+  return (
+    <Label scaleX={1 / scale} scaleY={1 / scale} offsetX={36} offsetY={9} rotation={rotation} listening={false}>
+      <Tag fill="#ffffff" opacity={0.85} cornerRadius={3} />
+      <Text
+        text={item.elevation > 0 ? `${item.params.width} ↑${item.elevation}` : String(item.params.width)}
+        fontSize={12}
+        padding={3}
+        width={72}
+        align="center"
+        fill="#0f172a"
+      />
+    </Label>
+  )
+}
+
+/** Подпись поверх других блоков, не перехватывающая выбор тумб под столешницей. */
+export function FurniturePlanLabel({ item, scale }: Omit<LabelProps, 'rotation'>) {
+  return (
+    <Group x={item.position.x} y={item.position.y} listening={false}>
+      <FurnitureLabel item={item} scale={scale} />
     </Group>
   )
 }

@@ -157,3 +157,55 @@ test('opens the selected wall elevation and switches between walls', async ({ pa
   await page.getByRole('button', { name: '›', exact: true }).click()
   await expect(page.getByText('Стена 3 из 4 · 3600 мм')).toBeVisible()
 })
+
+test('creates a row countertop, follows resizing, persists and switches to manual editing', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [1200, 1800].map((offset, index) => ({
+      id: `base-${index}`,
+      type: 'cabinet',
+      position: { x: offset, y: 330 },
+      elevation: 0,
+      rotation: 0,
+      params: cabinetParams,
+      wallAnchor: { wallId: 'top', side: 'left', offset, distance: 0 },
+    })),
+    viewMode: '2d',
+  })
+
+  const selectBase = async (offset: number) => {
+    const surface = await planSurface(page)
+    const box = (await surface.boundingBox())!
+    const scale = Math.min(box.width / 4800, box.height / 4200)
+    await surface.click({
+      position: { x: box.width / 2 + (offset - 1800) * scale, y: box.height / 2 + (330 - 1500) * scale },
+    })
+  }
+
+  await selectBase(1200)
+  await page.getByRole('button', { name: 'Столешница на ряд', exact: true }).click()
+  const length = page.getByRole('spinbutton', { name: /^Длина/ })
+  await expect(page.getByText('Автоподгон по ряду', { exact: true })).toBeVisible()
+  await expect(length).toHaveValue('1200')
+  await expect(length).toBeDisabled()
+  await expect(page.getByRole('spinbutton', { name: /^Глубина/ })).toHaveValue('600')
+
+  // Опоры остаются доступны на плане даже под автоматической столешницей.
+  await selectBase(1800)
+  await page.getByRole('spinbutton', { name: /^Ширина/ }).fill('800')
+  await page.getByRole('spinbutton', { name: /^Ширина/ }).press('Enter')
+  await page.getByRole('button', { name: 'Выбрать столешницу', exact: true }).click()
+  await expect(length).toHaveValue('1400')
+
+  await page.reload()
+  await selectBase(1200)
+  await page.getByRole('button', { name: 'Выбрать столешницу', exact: true }).click()
+  await expect(length).toHaveValue('1400')
+  await expect(length).toBeDisabled()
+  await page.getByRole('button', { name: 'Редактировать вручную', exact: true }).click()
+  await expect(length).toBeEnabled()
+  await length.fill('1600')
+  await length.press('Enter')
+  await expect(length).toHaveValue('1600')
+  await expect(page.getByText('Автоподгон по ряду', { exact: true })).toHaveCount(0)
+})
