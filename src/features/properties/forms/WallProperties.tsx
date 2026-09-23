@@ -1,7 +1,7 @@
 import { selectedWall, useAppStore } from '@/application/project'
 import { WALL_LIMITS } from '@/domain/model'
 import { wallLength } from '@/domain/geometry/geometry'
-import { NumberField } from '@/shared/ui/NumberField'
+import { HistoryNumberField as NumberField } from '../HistoryNumberField'
 import { DangerButton } from '@/shared/ui/DangerButton'
 
 export function WallProperties() {

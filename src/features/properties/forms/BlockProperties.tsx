@@ -3,7 +3,7 @@ import { BLOCK_LABELS, BLOCK_LIMITS, ELEVATION_LIMITS, FACADE_COLORS, UTILITY_LA
 import { isCountertopSupport } from '@/domain/assemblies/countertops'
 import { wallAnchorIsValid, wallAnchorOffsetLimits } from '@/domain/placement/wallAnchors'
 import { assessUtilities, blocksOpening, collides, isItemInsideRoom } from '@/domain/validation/rules'
-import { NumberField } from '@/shared/ui/NumberField'
+import { HistoryNumberField as NumberField } from '../HistoryNumberField'
 import { DangerButton } from '@/shared/ui/DangerButton'
 
 export function BlockProperties() {

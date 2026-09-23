@@ -28,6 +28,41 @@ async function planSurface(page: Page) {
   return surface
 }
 
+test('groups slider edits, supports undo and redo, and saves the undone result after reload', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [],
+    viewMode: '2d',
+  })
+  const undo = page.getByRole('button', { name: 'Отменить', exact: true })
+  const redo = page.getByRole('button', { name: 'Повторить', exact: true })
+  await expect(undo).toBeDisabled()
+  await page.getByRole('button', { name: /Шкаф напольный/ }).click()
+  const width = page.getByRole('spinbutton', { name: /^Ширина/ })
+  const slider = page.getByRole('slider', { name: 'Ширина: ползунок' })
+  await expect(width).toHaveValue('600')
+  await slider.focus()
+  await page.keyboard.down('ArrowRight')
+  await page.keyboard.down('ArrowRight')
+  await page.keyboard.down('ArrowRight')
+  await page.keyboard.up('ArrowRight')
+  await expect(width).toHaveValue('630')
+  await undo.click()
+  await expect(width).toHaveValue('600')
+  await redo.click()
+  await expect(width).toHaveValue('630')
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(width).toHaveValue('600')
+  await expect(page.getByRole('status')).toHaveText('Сохранено')
+  await page.reload()
+  await expect(undo).toBeDisabled()
+  await expect(redo).toBeDisabled()
+  const surface = await planSurface(page)
+  const box = (await surface.boundingBox())!
+  await surface.click({ position: { x: box.width / 2, y: box.height / 2 } })
+  await expect(width).toHaveValue('600')
+})
+
 test('migrates the old save, switches projects and restores each one after reload', async ({ page }) => {
   await openProject(page, {
     room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
@@ -48,11 +83,15 @@ test('migrates the old save, switches projects and restores each one after reloa
   await manager.getByRole('textbox', { name: 'Название нового проекта' }).fill('Вторая кухня')
   await manager.getByRole('button', { name: 'Создать' }).click()
   await expect(page.getByRole('button', { name: /Вторая кухня/ })).toBeVisible()
+  await expect(page.locator('main')).toHaveCount(1)
+  await expect(page.getByTestId('room-editor')).toHaveCount(1)
   await page.reload()
   await expect(page.getByText('Выводов', { exact: true }).locator('xpath=following-sibling::dd[1]')).toHaveText('0')
 
   await page.getByRole('button', { name: /Вторая кухня/ }).click()
   await page.getByRole('group', { name: 'Проект Предыдущий проект' }).getByRole('button', { name: 'Открыть' }).click()
+  await expect(page.locator('main')).toHaveCount(1)
+  await expect(page.getByTestId('room-editor')).toHaveCount(1)
   await expect(page.getByText('Выводов', { exact: true }).locator('xpath=following-sibling::dd[1]')).toHaveText('1')
   await page.reload()
   await expect(page.getByRole('button', { name: /Предыдущий проект/ })).toBeVisible()

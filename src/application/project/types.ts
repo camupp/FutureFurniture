@@ -9,6 +9,7 @@ import {
   type UtilityMount,
   type UtilityType,
 } from '@/domain/model'
+import type { ProjectHistory } from './history'
 
 export type Tool = 'select' | 'wall' | 'window' | 'door' | 'utility' | 'pan'
 export type ViewMode = '2d' | 'split' | '3d'
@@ -21,6 +22,13 @@ export type Selection = { kind: SelectionKind; id: string } | null
 export type NewBlock = { type: BlockType; elevation: number; params: BlockParams }
 
 export type AppState = Project & {
+  history: ProjectHistory
+  /** Changes only on undo/redo to cancel obsolete canvas drafts. */
+  historyRevision: number
+  undo: () => void
+  redo: () => void
+  beginHistoryGroup: () => void
+  endHistoryGroup: () => void
   selection: Selection
   tool: Tool
   orthoSnap: boolean

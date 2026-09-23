@@ -4,7 +4,7 @@ import { roomPolygon } from '@/domain/geometry/geometry'
 import { pointInPolygon } from '@/shared/lib/geometry2d'
 import { utilityPoint } from '@/domain/room/utilities'
 import { connectedUtilityIds } from '@/domain/validation/rules'
-import { NumberField } from '@/shared/ui/NumberField'
+import { HistoryNumberField as NumberField } from '../HistoryNumberField'
 import { DangerButton } from '@/shared/ui/DangerButton'
 
 export function UtilityProperties() {

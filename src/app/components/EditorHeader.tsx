@@ -1,4 +1,4 @@
-import { useAppStore, type EditorView, type ViewMode } from '@/application/project'
+import { canRedo, canUndo, useAppStore, type EditorView, type ViewMode } from '@/application/project'
 import { downloadSceneScreenshot } from '@/features/scene-3d'
 import { SegmentedControl } from '@/shared/ui/SegmentedControl'
 
@@ -17,15 +17,21 @@ export function EditorHeader({
   projectName,
   saving,
   onOpenProjects,
+  historyDisabled = false,
 }: {
   projectName: string
   saving: boolean
   onOpenProjects: () => void
+  historyDisabled?: boolean
 }) {
   const viewMode = useAppStore((s) => s.viewMode)
   const setViewMode = useAppStore((s) => s.setViewMode)
   const editorView = useAppStore((s) => s.editorView)
   const setEditorView = useAppStore((s) => s.setEditorView)
+  const undo = useAppStore((s) => s.undo)
+  const redo = useAppStore((s) => s.redo)
+  const undoAvailable = useAppStore(canUndo)
+  const redoAvailable = useAppStore(canRedo)
   return (
     <header className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-2.5">
       <div className="flex items-center gap-3">
@@ -42,6 +48,28 @@ export function EditorHeader({
         </span>
       </div>
       <div className="flex items-center gap-2">
+        <div role="group" aria-label="История изменений" className="flex gap-1">
+          <button
+            type="button"
+            aria-label="Отменить"
+            title="Отменить (⌘Z / Ctrl+Z)"
+            disabled={historyDisabled || !undoAvailable}
+            onClick={undo}
+            className="rounded-md border border-slate-200 px-2.5 py-1 text-xl hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <span aria-hidden="true">↶</span>
+          </button>
+          <button
+            type="button"
+            aria-label="Повторить"
+            title="Повторить (⌘⇧Z / Ctrl+Shift+Z)"
+            disabled={historyDisabled || !redoAvailable}
+            onClick={redo}
+            className="rounded-md border border-slate-200 px-2.5 py-1 text-xl hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <span aria-hidden="true">↷</span>
+          </button>
+        </div>
         {viewMode !== '3d' && <SegmentedControl options={EDITOR_VIEWS} value={editorView} onChange={setEditorView} />}
         <SegmentedControl options={VIEW_MODES} value={viewMode} onChange={setViewMode} />
         <button

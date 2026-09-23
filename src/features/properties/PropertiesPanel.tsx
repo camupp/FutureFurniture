@@ -15,13 +15,13 @@ export function PropertiesPanel() {
     <aside className="flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-l border-slate-200 bg-white p-4">
       <h2 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Свойства</h2>
       {opening ? (
-        <OpeningProperties />
+        <OpeningProperties key={opening.id} />
       ) : utility ? (
-        <UtilityProperties />
+        <UtilityProperties key={utility.id} />
       ) : wall ? (
-        <WallProperties />
+        <WallProperties key={wall.id} />
       ) : item ? (
-        <BlockProperties />
+        <BlockProperties key={item.id} />
       ) : (
         <RoomProperties />
       )}

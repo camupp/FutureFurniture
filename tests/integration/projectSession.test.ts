@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ProjectSession } from '@/application/project/projectSession'
 import type { ProjectRecord, ProjectRepository } from '@/application/project/projectRepository'
-import { useAppStore } from '@/application/project'
+import { canRedo, canUndo, useAppStore } from '@/application/project'
 import { makeRoom } from '../fixtures'
 
 class MemoryRepository implements ProjectRepository {
@@ -48,6 +48,116 @@ beforeEach(() => {
 })
 
 describe('project session', () => {
+  it('saves an undo performed while an earlier IndexedDB write is still in flight', async () => {
+    const repository = new MemoryRepository()
+    const session = new ProjectSession(repository, new MemoryLegacyStorage(), useAppStore)
+    await session.initialize()
+    try {
+      const id = session.getSnapshot().currentId!
+      const put = repository.put.bind(repository)
+      let pause = true
+      let release!: () => void
+      repository.put = async (record) => {
+        if (pause) {
+          pause = false
+          await new Promise<void>((resolve) => {
+            release = resolve
+          })
+        }
+        await put(record)
+      }
+      useAppStore.getState().setWallHeight(2900)
+      const saving = session.flush()
+      useAppStore.getState().undo()
+      release()
+      await saving
+      expect(repository.records.get(id)?.data.room.wallHeight).toBe(2700)
+      expect(session.hasPendingChanges()).toBe(false)
+    } finally {
+      session.dispose()
+    }
+  })
+
+  it('keeps undo and redo histories separate when switching between projects', async () => {
+    const repository = new MemoryRepository()
+    const session = new ProjectSession(repository, new MemoryLegacyStorage(), useAppStore)
+    await session.initialize()
+    try {
+      const firstId = session.getSnapshot().currentId!
+      useAppStore.getState().addUtility({ x: 1000, y: 1000 }, 'sewer')
+      useAppStore.getState().undo()
+      await session.create('Второй')
+      const secondId = session.getSnapshot().currentId!
+      expect(canUndo(useAppStore.getState())).toBe(false)
+      expect(canRedo(useAppStore.getState())).toBe(false)
+      useAppStore.getState().setWallHeight(3000)
+
+      await session.open(firstId)
+      expect(canRedo(useAppStore.getState())).toBe(true)
+      useAppStore.getState().redo()
+      expect(useAppStore.getState().room.utilities.map((item) => item.type)).toEqual(['sewer'])
+      expect(useAppStore.getState().room.wallHeight).toBe(2700)
+      await session.open(secondId)
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().room.wallHeight).toBe(2700)
+      expect(useAppStore.getState().room.utilities).toHaveLength(0)
+      await session.flush()
+      expect(repository.records.get(secondId)?.data.room.wallHeight).toBe(2700)
+      expect(repository.records.get(firstId)?.data.room.utilities).toHaveLength(1)
+    } finally {
+      session.dispose()
+    }
+  })
+
+  it('persists undo results but excludes history from backups and starts fresh after reload', async () => {
+    const repository = new MemoryRepository()
+    const legacy = new MemoryLegacyStorage()
+    const session = new ProjectSession(repository, legacy, useAppStore)
+    await session.initialize()
+    useAppStore.getState().setWallHeight(2900)
+    await session.flush()
+    useAppStore.getState().undo()
+    expect(session.hasPendingChanges()).toBe(true)
+    const backup = JSON.parse((await session.exportCurrent()).json)
+    expect(backup.data.room.wallHeight).toBe(2700)
+    expect(backup.data).not.toHaveProperty('history')
+    session.dispose()
+
+    const reloaded = new ProjectSession(repository, legacy, useAppStore)
+    await reloaded.initialize()
+    try {
+      expect(useAppStore.getState().room.wallHeight).toBe(2700)
+      expect(canUndo(useAppStore.getState())).toBe(false)
+      expect(canRedo(useAppStore.getState())).toBe(false)
+    } finally {
+      reloaded.dispose()
+    }
+  })
+
+  it('starts copies and imports with an empty history and closes pending groups before switching', async () => {
+    const session = new ProjectSession(new MemoryRepository(), new MemoryLegacyStorage(), useAppStore)
+    await session.initialize()
+    try {
+      const firstId = session.getSnapshot().currentId!
+      useAppStore.getState().beginHistoryGroup()
+      useAppStore.getState().setWallHeight(2800)
+      useAppStore.getState().setWallHeight(2900)
+      await session.duplicate(firstId)
+      expect(useAppStore.getState().room.wallHeight).toBe(2900)
+      expect(canUndo(useAppStore.getState())).toBe(false)
+      const copyId = session.getSnapshot().currentId!
+      const backup = await session.exportCurrent()
+      await session.remove(copyId)
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().room.wallHeight).toBe(2700)
+      await session.importJson(backup.json)
+      expect(useAppStore.getState().room.wallHeight).toBe(2900)
+      expect(canUndo(useAppStore.getState())).toBe(false)
+    } finally {
+      session.dispose()
+    }
+  })
+
   it('autosaves each project, switches without leaking state and reloads the active one', async () => {
     const repository = new MemoryRepository()
     const legacy = new MemoryLegacyStorage()

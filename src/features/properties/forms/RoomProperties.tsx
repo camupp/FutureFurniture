@@ -1,6 +1,6 @@
 import { useAppStore } from '@/application/project'
 import { WALL_LIMITS } from '@/domain/model'
-import { NumberField } from '@/shared/ui/NumberField'
+import { HistoryNumberField as NumberField } from '../HistoryNumberField'
 
 export function RoomProperties() {
   const room = useAppStore((s) => s.room)

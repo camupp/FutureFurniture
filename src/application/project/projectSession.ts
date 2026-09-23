@@ -2,6 +2,7 @@ import { createInitialData } from './initialState'
 import { normalizeProjectDocument, partializeProject, PROJECT_STORAGE_KEY } from './persistence'
 import { IndexedDbProjectRepository, type ProjectRecord, type ProjectRepository } from './projectRepository'
 import { useAppStore } from './store'
+import { emptyHistory, type ProjectHistory } from './history'
 
 const BACKUP_FORMAT = 'future-furniture-project'
 const BACKUP_VERSION = 1
@@ -48,6 +49,7 @@ export class ProjectSession {
   private savePromise: Promise<void> | null = null
   private dirty = false
   private loadingStore = false
+  private histories = new Map<string, ProjectHistory>()
 
   constructor(
     repository: ProjectRepository,
@@ -89,7 +91,14 @@ export class ProjectSession {
     if (!normalized) throw new Error(`Проект «${record.name}» повреждён; его данные не были изменены`)
     this.loadingStore = true
     try {
-      this.store.setState({ ...createInitialData(() => crypto.randomUUID()), ...normalized })
+      this.store.getState().endHistoryGroup()
+      if (this.current) this.histories.set(this.current.id, this.store.getState().history)
+      this.store.setState({
+        ...createInitialData(() => crypto.randomUUID()),
+        ...normalized,
+        history: this.histories.get(record.id) ?? emptyHistory(),
+        historyRevision: this.store.getState().historyRevision + 1,
+      })
       this.current = { ...record, data: normalized }
     } finally {
       this.loadingStore = false
@@ -218,6 +227,7 @@ export class ProjectSession {
     if (this.snapshot.busy) throw new Error('Дождитесь завершения предыдущего действия')
     this.publish({ busy: true, error: null })
     try {
+      this.store.getState().endHistoryGroup()
       await this.flush()
       return await action()
     } catch (error) {
@@ -291,9 +301,11 @@ export class ProjectSession {
         else {
           await this.repository.setCurrentId(null)
           this.current = null
+          this.store.setState({ history: emptyHistory() })
           this.publish({ projects: [], currentId: null })
         }
       } else this.publish({ projects })
+      this.histories.delete(id)
     })
   }
 
@@ -344,6 +356,7 @@ export class ProjectSession {
     this.unsubscribeStore = null
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = null
+    this.histories.clear()
   }
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type Konva from 'konva'
 import { useAppStore } from '@/application/project'
 import type { Point } from '@/domain/model'
@@ -21,6 +21,11 @@ export function usePlanTools(scale: number) {
   const utilityType = useAppStore((s) => s.utilityType)
   const [draft, setDraft] = useState<Point | null>(null)
   const [cursor, setCursor] = useState<Point | null>(null)
+  const historyRevision = useAppStore((s) => s.historyRevision)
+  useEffect(() => {
+    setDraft(null)
+    setCursor(null)
+  }, [historyRevision])
   const snapForWall = useCallback(
     (raw: Point): Point => {
       const threshold = VERTEX_SNAP_PX / scale

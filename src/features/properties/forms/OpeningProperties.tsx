@@ -2,7 +2,7 @@ import { selectedOpening, useAppStore } from '@/application/project'
 import { OPENING_LABELS, OPENING_LIMITS } from '@/domain/model'
 import { wallLength } from '@/domain/geometry/geometry'
 import { openingsOverlap } from '@/domain/validation/rules'
-import { NumberField } from '@/shared/ui/NumberField'
+import { HistoryNumberField as NumberField } from '../HistoryNumberField'
 import { DangerButton } from '@/shared/ui/DangerButton'
 
 export function OpeningProperties() {

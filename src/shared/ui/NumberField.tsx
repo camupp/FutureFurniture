@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { clamp } from '@/shared/lib/units'
 
 type NumberFieldProps = {
@@ -10,6 +10,8 @@ type NumberFieldProps = {
   slider?: boolean
   disabled?: boolean
   onChange: (value: number) => void
+  onInteractionStart?: () => void
+  onInteractionEnd?: () => void
 }
 
 export function NumberField({
@@ -21,10 +23,34 @@ export function NumberField({
   slider = true,
   disabled = false,
   onChange,
+  onInteractionStart,
+  onInteractionEnd,
 }: NumberFieldProps) {
   // Пока поле редактируют, значение живёт в draft: иначе промежуточный ввод
   // («», «1» вместо «1200») сразу уезжал бы в модель и зажимался по границам.
   const [draft, setDraft] = useState<string | null>(null)
+  const interacting = useRef(false)
+  const endCallback = useRef(onInteractionEnd)
+  endCallback.current = onInteractionEnd
+  const startInteraction = () => {
+    if (disabled || interacting.current) return
+    interacting.current = true
+    onInteractionStart?.()
+  }
+  const endInteraction = () => {
+    if (!interacting.current) return
+    interacting.current = false
+    endCallback.current?.()
+  }
+  useEffect(
+    () => () => {
+      if (interacting.current) {
+        interacting.current = false
+        endCallback.current?.()
+      }
+    },
+    [],
+  )
 
   const commit = (raw: string) => {
     const parsed = Number(raw)
@@ -61,6 +87,25 @@ export function NumberField({
           min={min}
           max={max}
           step={step}
+          aria-label={`${label}: ползунок`}
+          onPointerDown={(event) => {
+            startInteraction()
+            event.currentTarget.setPointerCapture?.(event.pointerId)
+          }}
+          onPointerUp={endInteraction}
+          onPointerCancel={endInteraction}
+          onLostPointerCapture={endInteraction}
+          onBlur={endInteraction}
+          onKeyDown={(event) => {
+            if (
+              ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(
+                event.key,
+              )
+            ) {
+              startInteraction()
+            }
+          }}
+          onKeyUp={endInteraction}
           onChange={(e) => {
             setDraft(null)
             onChange(Number(e.target.value))

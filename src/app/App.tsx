@@ -9,10 +9,12 @@ import { EditorHeader } from './components/EditorHeader'
 import { EditorTools } from './components/EditorTools'
 import { ProjectManager } from './components/ProjectManager'
 import { useProjectSession } from './useProjectSession'
+import { useHistoryKeyboard } from './useHistoryKeyboard'
 
 export function App() {
   const session = useProjectSession()
   const [projectsOpen, setProjectsOpen] = useState(false)
+  useHistoryKeyboard(session.phase === 'ready' && Boolean(session.currentId) && !session.busy && !projectsOpen)
   useEffect(() => {
     void projectSession.initialize().catch(() => undefined)
     const protectPendingSave = (event: BeforeUnloadEvent) => {
@@ -46,7 +48,12 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col overflow-x-auto bg-slate-100 text-slate-900">
-      <EditorHeader projectName={projectName} saving={session.saving} onOpenProjects={() => setProjectsOpen(true)} />
+      <EditorHeader
+        projectName={projectName}
+        saving={session.saving}
+        onOpenProjects={() => setProjectsOpen(true)}
+        historyDisabled={session.busy || projectsOpen}
+      />
       {session.error && (
         <div role="alert" className="bg-amber-50 px-4 py-2 text-sm text-amber-900">
           {session.error}
@@ -56,7 +63,7 @@ export function App() {
 
       {/* Целевое устройство — планшет в альбомной ориентации; на узком экране
           раскладка не схлопывается, а прокручивается по горизонтали. */}
-      <div className="flex min-h-0 min-w-[900px] flex-1">
+      <div key={session.currentId} className="flex min-h-0 min-w-[900px] flex-1">
         <nav className="flex w-52 shrink-0 flex-col gap-5 overflow-y-auto border-r border-slate-200 bg-white p-4">
           <EditorTools />
 

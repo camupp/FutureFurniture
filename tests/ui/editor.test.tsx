@@ -137,6 +137,9 @@ it('snaps an interior wall to the middle of a boundary without changing the floo
     end: { x: 1700, y: 1300 },
   })
   expect(roomPolygon(walls)).toHaveLength(4)
+  act(() => useAppStore.getState().undo())
+  expect(useAppStore.getState().room.walls).toHaveLength(4)
+  expect(tools!.draft).toBeNull()
 })
 
 it('opens the floor menu on long press, cancels on movement and clears the timer on unmount', () => {
