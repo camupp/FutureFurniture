@@ -14,17 +14,19 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
-    "format": "prettier --write src tests .github package.json tsconfig*.json .prettierrc.json .lintstagedrc.json vite.config.ts vitest.config.ts playwright.config.ts",
-    "format:check": "prettier --check src tests .github package.json tsconfig*.json .prettierrc.json .lintstagedrc.json vite.config.ts vitest.config.ts playwright.config.ts",
+    "format": "prettier --write src tests docs .github README.md docs/ARCHITECTURE.md docs/product.md package.json tsconfig*.json .prettierrc.json .lintstagedrc.json vite.config.ts vitest.config.ts playwright.config.ts",
+    "format:check": "prettier --check src tests docs .github README.md docs/ARCHITECTURE.md docs/product.md package.json tsconfig*.json .prettierrc.json .lintstagedrc.json vite.config.ts vitest.config.ts playwright.config.ts",
     "precommit": "lint-staged && npm run typecheck && npm test",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build",
-    "check:all": "npm run check && npm run test:e2e"
+    "check:all": "npm run check && npm run test:e2e",
+    "test:architecture": "vitest run tests/architecture"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.9",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.2",

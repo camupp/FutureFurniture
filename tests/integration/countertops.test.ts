@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useAppStore } from '../../src/shared/store'
-import type { FurnitureItem, Room } from '../../src/shared/types'
-import { furnitureFromWallAnchor } from '../../src/shared/utils/wallAnchors'
+import { useAppStore } from '@/application/project'
+import type { FurnitureItem, Room } from '@/domain/model'
+import { cabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
+import { furnitureFromWallAnchor } from '@/domain/placement/wallAnchors'
 import { makeFurniture, makeRoom } from '../fixtures'
 
 function resetStore() {
@@ -53,6 +54,73 @@ function withoutAutomation(countertop: FurnitureItem): FurnitureItem {
 beforeEach(resetStore)
 
 describe('automatic countertop actions', () => {
+  it('recognizes the blind corner produced by wall collision displacement', () => {
+    const room = makeRoom()
+    const topWall = room.walls.find((wall) => wall.id === 'top')!
+    const rightWall = room.walls.find((wall) => wall.id === 'right')!
+    const first = furnitureFromWallAnchor(
+      makeFurniture('cabinet', {
+        id: 'first',
+        params: { ...makeFurniture().params, width: 1200 },
+        wallAnchor: { wallId: 'top', side: 'left', offset: 2950, distance: 0 },
+      }),
+      topWall,
+    )
+    const second = furnitureFromWallAnchor(
+      makeFurniture('cabinet', {
+        id: 'second',
+        wallAnchor: { wallId: 'right', side: 'left', offset: 400, distance: 0 },
+      }),
+      rightWall,
+    )
+    useAppStore.setState({ room, furniture: [first, second] })
+
+    useAppStore.getState().dropFurniture('second', { x: 3500, y: 400 })
+
+    expect(item('second')).toMatchObject({ position: { x: 3270, y: 910 }, rotation: 90 })
+    expect(cabinetFrontLayout(item('first'), useAppStore.getState().furniture).blocked).toEqual([
+      { start: 40, end: 600 },
+    ])
+  })
+
+  it('manages a free-standing blind corner as one L-shaped countertop and restores it after separation', () => {
+    const first = makeFurniture('cabinet', {
+      id: 'first',
+      position: { x: 600, y: 280 },
+      params: { ...makeFurniture().params, width: 1200 },
+    })
+    const second = makeFurniture('cabinet', {
+      id: 'second',
+      position: { x: 920, y: 860 },
+      rotation: 90,
+    })
+    useAppStore.setState({ room: makeRoom({ walls: [] }), furniture: [first, second] })
+
+    useAppStore.getState().addCountertopForRow('first')
+
+    const cornerTops = countertops()
+    expect(cornerTops).toHaveLength(2)
+    expect(new Set(cornerTops.map((countertop) => countertop.autoCountertop?.groupId))).toEqual(
+      new Set([cornerTops[0]!.autoCountertop!.groupId]),
+    )
+    expect(cornerTops[0]!.autoCountertop!.groupId).toBeTruthy()
+    expect(cabinetFrontLayout(item('first'), useAppStore.getState().furniture).blocked).toHaveLength(1)
+
+    useAppStore.getState().updateFurnitureParams(cornerTops[0]!.id, { facadeColor: '#ffffff', height: 50 })
+    expect(countertops().every((countertop) => countertop.params.facadeColor === '#ffffff')).toBe(true)
+    expect(countertops().every((countertop) => countertop.params.height === 50)).toBe(true)
+
+    useAppStore.getState().moveFurniture('second', { x: 920, y: 900 })
+    expect(cabinetFrontLayout(item('first'), useAppStore.getState().furniture).blocked).toEqual([])
+    expect(countertops()).toHaveLength(2)
+    expect(countertops().every((countertop) => countertop.autoCountertop?.groupId === undefined)).toBe(true)
+
+    useAppStore.getState().moveFurniture('second', { x: 920, y: 860 })
+    expect(countertops().every((countertop) => countertop.autoCountertop?.groupId)).toBe(true)
+    useAppStore.getState().detachCountertop(countertops()[0]!.id)
+    expect(countertops().every((countertop) => countertop.autoCountertop === undefined)).toBe(true)
+  })
+
   it('covers a complete row and selects its existing countertop when requested again', () => {
     useAppStore.setState({ furniture: [base('first', 1000), base('second', 1600)] })
 
@@ -224,15 +292,19 @@ describe('automatic countertop actions', () => {
     })
   })
 
-  it('removes its generated countertop when wall deletion leaves the support unattached', () => {
+  it('keeps its generated countertop when wall deletion leaves a valid free-standing support', () => {
     useAppStore.setState({ furniture: [base('base', 1000)] })
     useAppStore.getState().addCountertopForRow('base')
 
     useAppStore.getState().removeWall('top')
 
-    expect(countertops()).toEqual([])
+    expect(countertops()).toHaveLength(1)
+    expect(countertops()[0]).toMatchObject({
+      position: { x: 1000, y: 350 },
+      autoCountertop: { supportIds: ['base'] },
+    })
     expect(item('base').wallAnchor).toBeUndefined()
-    expect(useAppStore.getState().selection).toBeNull()
+    expect(useAppStore.getState().selection).toEqual({ kind: 'furniture', id: countertops()[0]!.id })
   })
 
   it.each([0, 1])('detaches every piece of a long row when piece %i becomes manual', (pieceIndex) => {

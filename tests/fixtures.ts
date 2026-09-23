@@ -1,13 +1,4 @@
-import type {
-  BlockType,
-  FurnitureItem,
-  Opening,
-  OpeningType,
-  Room,
-  Utility,
-  UtilityType,
-  Wall,
-} from '../src/shared/types'
+import type { BlockType, FurnitureItem, Opening, OpeningType, Room, Utility, UtilityType, Wall } from '@/domain/model'
 
 export const RECT_WALLS: Wall[] = [
   { id: 'top', start: { x: 0, y: 0 }, end: { x: 3600, y: 0 }, thickness: 100 },

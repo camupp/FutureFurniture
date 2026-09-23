@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useAppStore } from '../../src/shared/store'
-import { utilityPoint } from '../../src/shared/utils/utilities'
-import { blocksOverlap } from '../../src/shared/utils/collision'
+import { useAppStore } from '@/application/project'
+import { utilityPoint } from '@/domain/room/utilities'
+import { blocksOverlap } from '@/domain/geometry/collision'
 import { makeRoom } from '../fixtures'
 import { makeFurniture } from '../fixtures'
-import { furnitureFromWallAnchor } from '../../src/shared/utils/wallAnchors'
+import { furnitureFromWallAnchor } from '@/domain/placement/wallAnchors'
 
 function resetStore() {
   localStorage.clear()

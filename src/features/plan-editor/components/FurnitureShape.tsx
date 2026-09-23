@@ -1,0 +1,161 @@
+import { Group, Label, Line, Rect, Tag, Text } from 'react-konva'
+import type Konva from 'konva'
+import type { FurnitureItem, Point } from '@/domain/model'
+import { CABINET_PLINTH_INSET, type CabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
+import type { Placement } from '@/domain/placement/snapping'
+
+type Props = {
+  item: FurnitureItem
+  selected: boolean
+  invalid: boolean
+  warning: boolean
+  showLabel: boolean
+  draggable: boolean
+  scale: number
+  frontLayout?: CabinetFrontLayout
+  onSelect: () => void
+  onMove: (position: Point) => void
+  onPreview: (placement: Placement | null) => void
+  /** Куда блок встанет, если отпустить его здесь. Считается на каждый кадр перетаскивания. */
+  resolve: (position: Point) => Placement
+}
+
+export function FurnitureShape({
+  item,
+  selected,
+  invalid,
+  warning,
+  showLabel,
+  draggable,
+  scale,
+  frontLayout,
+  onSelect,
+  onMove,
+  onPreview,
+  resolve,
+}: Props) {
+  const { width, depth, facadeColor } = item.params
+  const stroke = invalid ? '#dc2626' : warning ? '#d97706' : selected ? '#2563eb' : '#334155'
+
+  /**
+   * Блок притягивается прямо под курсором, а не прыгает после отпускания.
+   * Заодно это держит узел Konva и модель в одной позиции: если привязка вернула
+   * ту же точку, стор не меняется и повторного рендера не будет — узел обязан
+   * стоять там же, иначе план и 3D разъедутся.
+   */
+  const applyPlacement = (node: Konva.Node) => {
+    const placement = resolve({ x: node.x(), y: node.y() })
+    node.position(placement.position)
+    node.rotation(placement.rotation)
+    return placement
+  }
+
+  const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
+    onPreview(applyPlacement(e.target))
+  }
+
+  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
+    const placement = applyPlacement(e.target)
+    onPreview(null)
+    onMove(placement.position)
+  }
+
+  return (
+    <Group
+      x={item.position.x}
+      y={item.position.y}
+      rotation={item.rotation}
+      draggable={draggable}
+      onMouseDown={onSelect}
+      onTouchStart={onSelect}
+      onDragMove={handleDragMove}
+      onDragEnd={handleDragEnd}
+      onDragStart={(event) => onPreview(applyPlacement(event.target))}
+    >
+      <Rect
+        x={-width / 2}
+        y={-depth / 2}
+        width={width}
+        height={depth}
+        fill={invalid ? '#fee2e2' : warning ? '#fef3c7' : facadeColor}
+        opacity={0.9}
+        stroke={stroke}
+        strokeWidth={selected ? 2.5 : 1.5}
+        strokeScaleEnabled={false}
+        // Навесной блок на плане принято показывать пунктиром.
+        dash={item.elevation > 0 ? [10, 6] : undefined}
+      />
+      {item.type === 'cabinet' &&
+        (frontLayout?.visible ?? [{ start: -width / 2, end: width / 2 }]).map((interval, index) => (
+          /* Толстая линия — доступный фасад с дверцами. */
+          <Line
+            key={`facade-${index}`}
+            points={[interval.start, depth / 2, interval.end, depth / 2]}
+            stroke={stroke}
+            strokeWidth={5}
+            strokeScaleEnabled={false}
+            listening={false}
+          />
+        ))}
+      {item.type === 'cabinet' &&
+        frontLayout?.blocked.map((interval, index) => (
+          /* Пунктиром обозначаем глухую часть, закрытую перпендикулярной тумбой. */
+          <Line
+            key={`blank-${index}`}
+            points={[interval.start, depth / 2, interval.end, depth / 2]}
+            stroke={stroke}
+            strokeWidth={2}
+            dash={[7, 5]}
+            strokeScaleEnabled={false}
+            listening={false}
+          />
+        ))}
+      {item.type === 'cabinet' && item.elevation === 0 && frontLayout && (
+        <Line
+          points={[
+            frontLayout.plinth.start,
+            depth / 2 - CABINET_PLINTH_INSET,
+            frontLayout.plinth.end,
+            depth / 2 - CABINET_PLINTH_INSET,
+          ]}
+          stroke="#475569"
+          strokeWidth={3}
+          strokeScaleEnabled={false}
+          listening={false}
+        />
+      )}
+      {showLabel && <FurnitureLabel item={item} scale={scale} rotation={-item.rotation} />}
+    </Group>
+  )
+}
+
+type LabelProps = {
+  item: FurnitureItem
+  scale: number
+  rotation?: number
+}
+
+function FurnitureLabel({ item, scale, rotation = 0 }: LabelProps) {
+  return (
+    <Label scaleX={1 / scale} scaleY={1 / scale} offsetX={36} offsetY={9} rotation={rotation} listening={false}>
+      <Tag fill="#ffffff" opacity={0.85} cornerRadius={3} />
+      <Text
+        text={item.elevation > 0 ? `${item.params.width} ↑${item.elevation}` : String(item.params.width)}
+        fontSize={12}
+        padding={3}
+        width={72}
+        align="center"
+        fill="#0f172a"
+      />
+    </Label>
+  )
+}
+
+/** Подпись поверх других блоков, не перехватывающая выбор тумб под столешницей. */
+export function FurniturePlanLabel({ item, scale }: Omit<LabelProps, 'rotation'>) {
+  return (
+    <Group x={item.position.x} y={item.position.y} listening={false}>
+      <FurnitureLabel item={item} scale={scale} />
+    </Group>
+  )
+}

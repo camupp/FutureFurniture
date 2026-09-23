@@ -209,3 +209,43 @@ test('creates a row countertop, follows resizing, persists and switches to manua
   await expect(length).toHaveValue('1600')
   await expect(page.getByText('Автоподгон по ряду', { exact: true })).toHaveCount(0)
 })
+
+test('builds one automatic L-shaped countertop over a free-standing blind corner', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [
+      {
+        id: 'first',
+        type: 'cabinet',
+        position: { x: 600, y: 280 },
+        elevation: 0,
+        rotation: 0,
+        params: { ...cabinetParams, width: 1200 },
+      },
+      {
+        id: 'second',
+        type: 'cabinet',
+        position: { x: 920, y: 860 },
+        elevation: 0,
+        rotation: 90,
+        params: cabinetParams,
+      },
+    ],
+    viewMode: '2d',
+  })
+
+  const surface = await planSurface(page)
+  const box = (await surface.boundingBox())!
+  const scale = Math.min(box.width / 4800, box.height / 4200)
+  await surface.click({
+    position: { x: box.width / 2 + (600 - 1800) * scale, y: box.height / 2 + (280 - 1500) * scale },
+  })
+  await page.getByRole('button', { name: 'Столешница на ряд', exact: true }).click()
+
+  await expect(page.getByText('Автоподгон угловой столешницы', { exact: true })).toBeVisible()
+  await expect(page.locator('aside')).toContainText('Тумб: 2')
+  await expect(page.getByRole('spinbutton', { name: /^Длина/ })).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Редактировать вручную', exact: true }).click()
+  await expect(page.getByText('Автоподгон угловой столешницы', { exact: true })).toHaveCount(0)
+})
