@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { blocksOpening } from '@/domain/validation/rules'
-import { placeBlock, placeBlockInSection } from '@/domain/placement/snapping'
-import { makeFurniture, makeOpening, makeRoom } from '../../../fixtures'
+import { blocksOpening, blocksWall } from '@/domain/validation/rules'
+import { placeBlock, placeBlockInSection, placeBlockOnWall } from '@/domain/placement/snapping'
+import { makeFurniture, makeOpening, makePartitionedRoom, makeRoom } from '../../../fixtures'
 
 const roomCenter = { x: 1800, y: 1500 }
 
@@ -91,5 +91,41 @@ describe('placeBlock', () => {
     const result = placeBlock(moving, { x: 1500, y: 200 }, makeRoom(), [existing], roomCenter, true)
     expect(Math.abs(result.position.x - existing.position.x)).toBe(600)
     expect(result.position.y).toBe(330)
+  })
+
+  it('keeps a cabinet on an inner wall clear of the exterior wall at its start', () => {
+    const room = makePartitionedRoom()
+    const cabinet = makeFurniture('cabinet', {
+      params: { ...makeFurniture().params, width: 1200 },
+      position: { x: 2030, y: 2750 },
+      wallAnchor: { wallId: 'inner-vertical', side: 'left', offset: 250, distance: 0 },
+    })
+    const result = placeBlockOnWall(cabinet, 'inner-vertical', 250, room, [], roomCenter, true)
+
+    expect(result.wallAnchor?.offset).toBeGreaterThanOrEqual(650)
+    expect(blocksWall({ ...cabinet, ...result }, room)).toBe(false)
+  })
+
+  it('moves a cabinet on the exterior wall away from a T-junction', () => {
+    const room = makePartitionedRoom()
+    const cabinet = makeFurniture('cabinet', {
+      params: { ...makeFurniture().params, width: 1200 },
+      position: { x: 1700, y: 2670 },
+      wallAnchor: { wallId: 'bottom', side: 'left', offset: 1900, distance: 0 },
+    })
+    const result = placeBlockOnWall(cabinet, 'bottom', 1900, room, [], roomCenter, true)
+
+    expect(Math.abs((result.wallAnchor?.offset ?? 0) - 1900)).toBeGreaterThan(600)
+    expect(blocksWall({ ...cabinet, ...result }, room)).toBe(false)
+  })
+
+  it('selects the side of a partition from the cursor position', () => {
+    const room = makePartitionedRoom()
+    const cabinet = makeFurniture('cabinet')
+    const left = placeBlock(cabinet, { x: 1450, y: 2200 }, room, [], roomCenter, true)
+    const right = placeBlock(cabinet, { x: 1950, y: 2200 }, room, [], roomCenter, true)
+
+    expect(left.wallAnchor).toMatchObject({ wallId: 'inner-vertical', side: 'right' })
+    expect(right.wallAnchor).toMatchObject({ wallId: 'inner-vertical', side: 'left' })
   })
 })

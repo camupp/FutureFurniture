@@ -1,4 +1,5 @@
-import { useAppStore } from '@/application/project'
+import { useEffect, useState } from 'react'
+import { projectSession, useAppStore } from '@/application/project'
 import { ElevationEditor } from '@/features/elevation-editor'
 import { LibraryPanel } from '@/features/furniture-library'
 import { PropertiesPanel } from '@/features/properties'
@@ -6,8 +7,22 @@ import { RoomEditor } from '@/features/plan-editor'
 import { Scene3D } from '@/features/scene-3d'
 import { EditorHeader } from './components/EditorHeader'
 import { EditorTools } from './components/EditorTools'
+import { ProjectManager } from './components/ProjectManager'
+import { useProjectSession } from './useProjectSession'
 
 export function App() {
+  const session = useProjectSession()
+  const [projectsOpen, setProjectsOpen] = useState(false)
+  useEffect(() => {
+    void projectSession.initialize().catch(() => undefined)
+    const protectPendingSave = (event: BeforeUnloadEvent) => {
+      if (!projectSession.hasPendingChanges()) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', protectPendingSave)
+    return () => window.removeEventListener('beforeunload', protectPendingSave)
+  }, [])
   const viewMode = useAppStore((s) => s.viewMode)
   const editorView = useAppStore((s) => s.editorView)
   const clearRoom = useAppStore((s) => s.clearRoom)
@@ -16,9 +31,28 @@ export function App() {
     if (confirm('Удалить все стены, проёмы, выводы и блоки проекта?')) clearRoom()
   }
 
+  if (session.phase === 'loading') return <div className="p-6">Загружаем проекты…</div>
+  if (session.phase === 'error')
+    return (
+      <div className="p-6" role="alert">
+        Не удалось открыть проекты: {session.error}{' '}
+        <button type="button" onClick={() => void projectSession.initialize().catch(() => undefined)}>
+          Повторить
+        </button>
+      </div>
+    )
+  if (!session.currentId) return <ProjectManager onClose={() => undefined} />
+  const projectName = session.projects.find((project) => project.id === session.currentId)?.name ?? 'Проект'
+
   return (
     <div className="flex h-full flex-col overflow-x-auto bg-slate-100 text-slate-900">
-      <EditorHeader />
+      <EditorHeader projectName={projectName} saving={session.saving} onOpenProjects={() => setProjectsOpen(true)} />
+      {session.error && (
+        <div role="alert" className="bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          {session.error}
+        </div>
+      )}
+      {projectsOpen && <ProjectManager onClose={() => setProjectsOpen(false)} />}
 
       {/* Целевое устройство — планшет в альбомной ориентации; на узком экране
           раскладка не схлопывается, а прокручивается по горизонтали. */}

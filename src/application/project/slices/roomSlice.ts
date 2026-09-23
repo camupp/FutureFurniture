@@ -1,5 +1,5 @@
 import { WALL_LIMITS } from '@/domain/model'
-import { setWallLength } from '@/domain/geometry/geometry'
+import { roomPolygon, setWallLength } from '@/domain/geometry/geometry'
 import { normalizeOpening } from '@/domain/room/openings'
 import { clamp } from '@/shared/lib/units'
 import { normalizeUtility } from '@/domain/room/utilities'
@@ -18,7 +18,13 @@ export function createRoomSlice({
   return {
     addWall: (start, end) =>
       set((state) => {
-        const wall = { id: newId(), start, end, thickness: DEFAULT_WALL_THICKNESS }
+        const wall = {
+          id: newId(),
+          start,
+          end,
+          thickness: DEFAULT_WALL_THICKNESS,
+          kind: roomPolygon(state.room.walls).length >= 3 ? ('partition' as const) : ('boundary' as const),
+        }
         return {
           room: { ...state.room, walls: [...state.room.walls, wall] },
           elevationWallId: state.elevationWallId ?? wall.id,

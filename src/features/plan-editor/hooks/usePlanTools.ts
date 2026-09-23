@@ -26,9 +26,10 @@ export function usePlanTools(scale: number) {
       const threshold = VERTEX_SNAP_PX / scale
       let nearest: Point | null = null
       let nearestDistance = threshold
+      const aligned = draft && ortho ? orthoSnap(draft, raw) : raw
       for (const wall of room.walls) {
         for (const vertex of [wall.start, wall.end]) {
-          const d = distance(vertex, raw)
+          const d = distance(vertex, aligned)
           if (d < nearestDistance) {
             nearest = vertex
             nearestDistance = d
@@ -36,7 +37,26 @@ export function usePlanTools(scale: number) {
         }
       }
       if (nearest) return nearest
-      const aligned = draft && ortho ? orthoSnap(draft, raw) : raw
+      // Т-стык должен попадать на ось существующей стены, а не рядом с ней по сетке.
+      for (const wall of room.walls) {
+        const dx = wall.end.x - wall.start.x
+        const dy = wall.end.y - wall.start.y
+        const lengthSq = dx * dx + dy * dy
+        if (lengthSq < 1) continue
+        const t = Math.max(
+          0,
+          Math.min(1, ((aligned.x - wall.start.x) * dx + (aligned.y - wall.start.y) * dy) / lengthSq),
+        )
+        const projected = { x: wall.start.x + dx * t, y: wall.start.y + dy * t }
+        const d = distance(projected, aligned)
+        if (d < nearestDistance) {
+          const length = Math.sqrt(lengthSq)
+          const offset = Math.max(0, Math.min(length, Math.round((t * length) / GRID_STEP) * GRID_STEP))
+          nearest = { x: wall.start.x + (dx / length) * offset, y: wall.start.y + (dy / length) * offset }
+          nearestDistance = d
+        }
+      }
+      if (nearest) return nearest
       return snapPoint(aligned, GRID_STEP)
     },
     [room.walls, draft, ortho, scale],

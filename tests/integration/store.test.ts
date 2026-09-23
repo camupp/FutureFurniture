@@ -5,6 +5,9 @@ import { blocksOverlap } from '@/domain/geometry/collision'
 import { makeRoom } from '../fixtures'
 import { makeFurniture } from '../fixtures'
 import { furnitureFromWallAnchor } from '@/domain/placement/wallAnchors'
+import { normalizeProjectDocument } from '@/application/project/persistence'
+import { roomPolygon } from '@/domain/geometry/geometry'
+import { makePartitionedRoom } from '../fixtures'
 
 function resetStore() {
   localStorage.clear()
@@ -83,7 +86,32 @@ describe('utility actions', () => {
 })
 
 describe('persistence migration', () => {
-  it('loads a legacy utility without mount as a floor utility', async () => {
+  it('recognizes old interior walls without changing the saved floor outline', () => {
+    const room = makePartitionedRoom()
+    const legacyWalls = room.walls.map(({ kind: _kind, ...wall }) => wall)
+    const data = normalizeProjectDocument(
+      { room: { ...room, walls: legacyWalls }, furniture: [], viewMode: 'split' },
+      useAppStore.getState(),
+      () => crypto.randomUUID(),
+    )!
+
+    expect(data.room?.walls.map((wall) => wall.kind)).toEqual([
+      'boundary',
+      'boundary',
+      'boundary',
+      'boundary',
+      'partition',
+      'partition',
+    ])
+    expect(roomPolygon(data.room!.walls)).toEqual([
+      { x: 0, y: 0 },
+      { x: 3600, y: 0 },
+      { x: 3600, y: 3000 },
+      { x: 0, y: 3000 },
+    ])
+  })
+
+  it('loads a legacy utility without mount as a floor utility', () => {
     const room = makeRoom()
     const legacyUtility = {
       id: 'legacy-water',
@@ -91,15 +119,12 @@ describe('persistence migration', () => {
       point: { x: 1000, y: 500 },
       height: 500,
     }
-    localStorage.setItem(
-      'future-furniture-project',
-      JSON.stringify({
-        state: { room: { ...room, utilities: [legacyUtility] }, furniture: [], viewMode: '2d' },
-        version: 0,
-      }),
-    )
-
-    await useAppStore.persist.rehydrate()
+    const data = normalizeProjectDocument(
+      { room: { ...room, utilities: [legacyUtility] }, furniture: [], viewMode: '2d' },
+      useAppStore.getState(),
+      () => crypto.randomUUID(),
+    )!
+    useAppStore.setState(data)
     const state = useAppStore.getState()
     expect(state.room.utilities[0]).toMatchObject({
       id: 'legacy-water',
@@ -109,15 +134,15 @@ describe('persistence migration', () => {
     expect(state.viewMode).toBe('2d')
   })
 
-  it('restores the wall attachment of legacy furniture that was snapped to a wall', async () => {
+  it('restores the wall attachment of legacy furniture that was snapped to a wall', () => {
     const room = makeRoom()
     const legacyFurniture = makeFurniture('cabinet', { position: { x: 1000, y: 330 }, rotation: 0 })
-    localStorage.setItem(
-      'future-furniture-project',
-      JSON.stringify({ state: { room, furniture: [legacyFurniture], viewMode: 'split' }, version: 0 }),
-    )
-
-    await useAppStore.persist.rehydrate()
+    const data = normalizeProjectDocument(
+      { room, furniture: [legacyFurniture], viewMode: 'split' },
+      useAppStore.getState(),
+      () => crypto.randomUUID(),
+    )!
+    useAppStore.setState(data)
     expect(useAppStore.getState().furniture[0]?.wallAnchor).toEqual({
       wallId: 'top',
       side: 'left',
@@ -128,6 +153,13 @@ describe('persistence migration', () => {
 })
 
 describe('wall-attached furniture actions', () => {
+  it('adds a wall inside a closed room as a partition', () => {
+    useAppStore.getState().addWall({ x: 1700, y: 3000 }, { x: 1700, y: 1300 })
+    const walls = useAppStore.getState().room.walls
+    expect(walls[4]?.kind).toBe('partition')
+    expect(roomPolygon(walls)).toHaveLength(4)
+  })
+
   it('stores an attachment after a smart drop', () => {
     useAppStore.getState().addBlock({
       type: 'cabinet',

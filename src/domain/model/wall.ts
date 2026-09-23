@@ -8,6 +8,8 @@ export const WALL_LIMITS = {
 
 export const wallSchema = z.object({
   id: z.string(),
+  /** Внешний контур образует пол; перегородки не меняют его геометрию. */
+  kind: z.enum(['boundary', 'partition']).optional(),
   start: pointSchema,
   end: pointSchema,
   thickness: z.number().min(WALL_LIMITS.thickness.min).max(WALL_LIMITS.thickness.max),

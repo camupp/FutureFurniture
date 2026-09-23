@@ -62,6 +62,7 @@ export function RoomMesh({
         <WallMesh
           key={wall.id}
           wall={wall}
+          walls={room.walls}
           height={room.wallHeight}
           roomCenter={box.center}
           openings={room.openings.filter((opening) => opening.wallId === wall.id)}

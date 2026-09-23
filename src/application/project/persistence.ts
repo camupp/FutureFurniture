@@ -1,6 +1,6 @@
 import { OPENING_LIMITS, projectSchema } from '@/domain/model'
 import { syncAutoCountertops } from '@/domain/assemblies/countertops'
-import { roomPolygon, wallLength } from '@/domain/geometry/geometry'
+import { boundaryWalls, roomPolygon, wallLength } from '@/domain/geometry/geometry'
 import { bounds } from '@/shared/lib/geometry2d'
 import { normalizeOpening } from '@/domain/room/openings'
 import { normalizeUtility, utilityPoint } from '@/domain/room/utilities'
@@ -18,11 +18,32 @@ export function partializeProject(state: AppState) {
   }
 }
 
+export type ProjectDocument = ReturnType<typeof partializeProject>
+
+/** Reject invalid imports before the existing compatibility/normalization path runs. */
+export function normalizeProjectDocument(
+  persisted: unknown,
+  current: AppState,
+  newId: () => string,
+): ProjectDocument | null {
+  if (!projectSchema.safeParse(persisted).success) return null
+  return partializeProject(mergePersistedProject(persisted, current, newId))
+}
+
 export function mergePersistedProject(persisted: unknown, current: AppState, newId: () => string): AppState {
   const parsed = projectSchema.safeParse(persisted)
   if (!parsed.success) return current
   const viewMode = (persisted as { viewMode?: ViewMode }).viewMode
-  const room = parsed.data.room
+  const boundaryIds = new Set(boundaryWalls(parsed.data.room.walls).map((wall) => wall.id))
+  const room = {
+    ...parsed.data.room,
+    walls: parsed.data.room.walls.map((wall) => ({
+      ...wall,
+      kind:
+        wall.kind ??
+        (boundaryIds.size === 0 || boundaryIds.has(wall.id) ? ('boundary' as const) : ('partition' as const)),
+    })),
+  }
   const openings = room.openings.flatMap((opening) => {
     const wall = room.walls.find((candidate) => candidate.id === opening.wallId)
     return wall && wallLength(wall) >= OPENING_LIMITS.width.min

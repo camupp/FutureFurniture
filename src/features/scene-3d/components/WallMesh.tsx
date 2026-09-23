@@ -3,15 +3,18 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { type Opening, type Point, type Wall } from '@/domain/model'
 import { wallAngle, wallCenter, wallLength } from '@/domain/geometry/geometry'
+import { wallJunctionProfile } from '@/domain/geometry/wallJunctions'
 import { clampOffset } from '@/domain/room/openings'
 import { mmToM } from '@/shared/lib/units'
 import { panelSegments } from '../blocks/slab'
+import { wallPanelGeometry } from '../geometry/wallPanels'
 import { OpeningMesh } from './OpeningMesh'
 
 const FADED_OPACITY = 0.1
 
 type WallMeshProps = {
   wall: Wall
+  walls: Wall[]
   height: number
   roomCenter: Point
   openings: Opening[]
@@ -22,6 +25,7 @@ type WallMeshProps = {
 
 export function WallMesh({
   wall,
+  walls,
   height,
   roomCenter,
   openings,
@@ -48,6 +52,13 @@ export function WallMesh({
     return panelSegments(length, height, cutouts)
   }, [wall, length, height, openings])
 
+  const profile = useMemo(() => wallJunctionProfile(wall, walls), [wall, walls])
+  const geometries = useMemo(
+    () => segments.map((segment) => wallPanelGeometry(segment, length, wall.thickness, profile)),
+    [segments, length, wall.thickness, profile],
+  )
+  useEffect(() => () => geometries.forEach((geometry) => geometry.dispose()), [geometries])
+
   const material = useMemo(
     () => new THREE.MeshStandardMaterial({ color: '#eceff3', roughness: 0.95, transparent: true }),
     [],
@@ -73,14 +84,13 @@ export function WallMesh({
 
   return (
     <group position={[mmToM(center.x), mmToM(height) / 2, mmToM(center.y)]} rotation={[0, -angle, 0]}>
-      {segments.map((segment) => (
+      {segments.map((segment, index) => (
         <mesh
           key={`${segment.x}:${segment.y}:${segment.width}:${segment.height}`}
-          position={[mmToM(segment.x), mmToM(segment.y), 0]}
+          geometry={geometries[index]}
           castShadow
           receiveShadow
         >
-          <boxGeometry args={[mmToM(segment.width), mmToM(segment.height), mmToM(wall.thickness)]} />
           <primitive object={material} attach="material" />
         </mesh>
       ))}

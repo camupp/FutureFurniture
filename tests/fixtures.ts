@@ -17,6 +17,30 @@ export function makeRoom(patch: Partial<Room> = {}): Room {
   }
 }
 
+export function makePartitionedRoom(): Room {
+  const room = makeRoom()
+  return {
+    ...room,
+    walls: [
+      ...room.walls,
+      {
+        id: 'inner-vertical',
+        kind: 'partition',
+        start: { x: 1700, y: 3000 },
+        end: { x: 1700, y: 1300 },
+        thickness: 100,
+      },
+      {
+        id: 'inner-horizontal',
+        kind: 'partition',
+        start: { x: 1700, y: 1300 },
+        end: { x: 2930, y: 1300 },
+        thickness: 100,
+      },
+    ],
+  }
+}
+
 export function makeOpening(type: OpeningType, patch: Partial<Opening> = {}): Opening {
   return {
     id: `${type}-1`,

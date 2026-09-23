@@ -1,6 +1,6 @@
 import type { FurnitureItem, Opening, Room, Utility } from '@/domain/model'
 import { blocksOverlap, footprintsOverlap, isBuiltIn } from '@/domain/geometry/collision'
-import { itemFootprint, roomPolygon } from '@/domain/geometry/geometry'
+import { itemFootprint, roomPolygon, wallFootprint } from '@/domain/geometry/geometry'
 import { bounds, pointInPolygon } from '@/shared/lib/geometry2d'
 import { clampOffset, openingObstaclePolygons } from '@/domain/room/openings'
 import { utilityPoint } from '@/domain/room/utilities'
@@ -17,6 +17,13 @@ export function isItemInsideRoom(item: FurnitureItem, room: Room): boolean {
 
 export function collides(item: FurnitureItem, others: FurnitureItem[]): boolean {
   return others.some((other) => blocksOverlap(item, other))
+}
+
+/** Перегородка и внешний периметр одинаково физически препятствуют мебели. */
+export function blocksWall(item: FurnitureItem, room: Room): boolean {
+  if (isBuiltIn(item) || item.elevation >= room.wallHeight) return false
+  const footprint = itemFootprint(item)
+  return room.walls.some((wall) => footprintsOverlap(footprint, wallFootprint(wall)))
 }
 
 /**
@@ -179,6 +186,7 @@ export function invalidItemIds(furniture: FurnitureItem[], room: Room): Set<stri
     if (
       !wallAnchorIsValid(item, room) ||
       !isItemInsideRoom(item, room) ||
+      blocksWall(item, room) ||
       collides(item, furniture) ||
       blocksOpening(item, room)
     ) {

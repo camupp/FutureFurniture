@@ -1,7 +1,7 @@
 import type { FurnitureItem, Opening, Point, Room, Wall, WallAnchor, WallSide } from '@/domain/model'
 import { blocksOverlap, footprintsOverlap, projectExtent } from '@/domain/geometry/collision'
 import { snapElevation } from '@/domain/placement/elevation'
-import { itemFootprint, wallLength } from '@/domain/geometry/geometry'
+import { boundaryWalls, itemFootprint, wallLength } from '@/domain/geometry/geometry'
 import { distance, rotatePoint, snap, snapPoint } from '@/shared/lib/geometry2d'
 import { openingObstaclePolygons } from '@/domain/room/openings'
 import {
@@ -64,6 +64,14 @@ function closestPointOnSegment(p: Point, a: Point, b: Point): Point {
   return { x: a.x + dx * t, y: a.y + dy * t }
 }
 
+function attachmentSide(wall: Wall, position: Point, walls: Wall[], roomCenter: Point, preferred?: WallSide): WallSide {
+  if (boundaryWalls(walls).some((candidate) => candidate.id === wall.id)) return wallInteriorSide(wall, roomCenter)
+  const frame = wallFrame(wall)
+  const signed = (position.x - wall.start.x) * frame.leftNormal.x + (position.y - wall.start.y) * frame.leftNormal.y
+  if (Math.abs(signed) < 1) return preferred ?? wallInteriorSide(wall, roomCenter)
+  return signed > 0 ? 'left' : 'right'
+}
+
 function fitToWall(
   item: FurnitureItem,
   wall: Wall,
@@ -74,7 +82,14 @@ function fitToWall(
 ): WallFit {
   const frame = wallFrame(wall)
   const normal = side === 'left' ? frame.leftNormal : { x: -frame.leftNormal.x, y: -frame.leftNormal.y }
-  const { min: minAlong, max: maxAlong } = wallAnchorOffsetLimits(item, wall, walls, side, distanceFromWall)
+  const { min: minAlong, max: maxAlong } = wallAnchorOffsetLimits(
+    item,
+    wall,
+    walls,
+    side,
+    distanceFromWall,
+    desiredOffset,
+  )
   const offset = Math.min(Math.max(desiredOffset, minAlong), maxAlong)
   const anchor: WallAnchor = { wallId: wall.id, side, offset, distance: distanceFromWall }
 
@@ -116,7 +131,7 @@ function snapToWall(item: FurnitureItem, position: Point, room: Room, roomCenter
 
   if (current && current.distance <= best.distance + REHOST_HYSTERESIS) best = current
 
-  const side = wallInteriorSide(best.wall, roomCenter)
+  const side = attachmentSide(best.wall, position, room.walls, roomCenter, item.wallAnchor?.side)
   const frame = wallFrame(best.wall)
   const along =
     (best.projection.x - best.wall.start.x) * frame.axis.x + (best.projection.y - best.wall.start.y) * frame.axis.y
@@ -305,7 +320,8 @@ export function placeBlockOnWall(
   if (!wall) return { position: item.position, rotation: item.rotation }
 
   const sameWall = item.wallAnchor?.wallId === wall.id
-  const side = sameWall && item.wallAnchor ? item.wallAnchor.side : wallInteriorSide(wall, roomCenter)
+  const side =
+    sameWall && item.wallAnchor ? item.wallAnchor.side : attachmentSide(wall, item.position, room.walls, roomCenter)
   const distanceFromWall = sameWall && item.wallAnchor ? item.wallAnchor.distance : 0
   const fit = fitToWall(item, wall, side, offset, room.walls, distanceFromWall)
   return snapEnabled ? finishWallPlacement(item, fit, room, others, roomCenter) : fit.placement

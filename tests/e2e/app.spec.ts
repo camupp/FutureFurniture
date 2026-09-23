@@ -10,14 +10,15 @@ const roomWalls = [
 const cabinetParams = { width: 600, height: 820, depth: 560, facadeColor: '#d6c09a' }
 
 async function openProject(page: Page, state?: Record<string, unknown>) {
-  await page.goto('/')
-  await page.evaluate((projectState) => {
+  await page.addInitScript((projectState) => {
+    if (sessionStorage.getItem('future-furniture-test-seeded')) return
+    sessionStorage.setItem('future-furniture-test-seeded', '1')
     localStorage.clear()
     if (projectState) {
       localStorage.setItem('future-furniture-project', JSON.stringify({ state: projectState, version: 0 }))
     }
   }, state)
-  await page.reload()
+  await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Замер кухни' })).toBeVisible()
 }
 
@@ -26,6 +27,38 @@ async function planSurface(page: Page) {
   await expect(surface).toBeVisible()
   return surface
 }
+
+test('migrates the old save, switches projects and restores each one after reload', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [],
+    viewMode: '2d',
+  })
+  await expect(page.getByRole('button', { name: /Предыдущий проект/ })).toBeVisible()
+  const surface = await planSurface(page)
+  const box = await surface.boundingBox()
+  expect(box).not.toBeNull()
+  await surface.click({ button: 'right', position: { x: box!.width / 2, y: box!.height / 2 } })
+  await page.getByRole('menuitem', { name: /Канализация/ }).click()
+  await expect(page.locator('aside')).toContainText('Крепление: пол')
+  await expect(page.getByRole('status')).toHaveText('Сохранено')
+
+  await page.getByRole('button', { name: /Предыдущий проект/ }).click()
+  const manager = page.getByRole('dialog', { name: 'Проекты' })
+  await manager.getByRole('textbox', { name: 'Название нового проекта' }).fill('Вторая кухня')
+  await manager.getByRole('button', { name: 'Создать' }).click()
+  await expect(page.getByRole('button', { name: /Вторая кухня/ })).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('Выводов', { exact: true }).locator('xpath=following-sibling::dd[1]')).toHaveText('0')
+
+  await page.getByRole('button', { name: /Вторая кухня/ }).click()
+  await page.getByRole('group', { name: 'Проект Предыдущий проект' }).getByRole('button', { name: 'Открыть' }).click()
+  await expect(page.getByText('Выводов', { exact: true }).locator('xpath=following-sibling::dd[1]')).toHaveText('1')
+  await page.reload()
+  await expect(page.getByRole('button', { name: /Предыдущий проект/ })).toBeVisible()
+  await expect(page.getByText('Выводов', { exact: true }).locator('xpath=following-sibling::dd[1]')).toHaveText('1')
+  expect(await page.evaluate(() => localStorage.getItem('future-furniture-project'))).toBeNull()
+})
 
 test('opens the floor menu and persists a floor sewer outlet', async ({ page }) => {
   await openProject(page)
@@ -38,6 +71,7 @@ test('opens the floor menu and persists a floor sewer outlet', async ({ page }) 
   await page.getByRole('menuitem', { name: /Канализация/ }).click()
 
   await expect(page.locator('aside')).toContainText('Крепление: пол')
+  await expect(page.getByRole('status')).toHaveText('Сохранено')
   await page.reload()
   const outputCount = page.getByText('Выводов', { exact: true }).locator('xpath=following-sibling::dd[1]')
   await expect(outputCount).toHaveText('1')
@@ -196,6 +230,8 @@ test('creates a row countertop, follows resizing, persists and switches to manua
   await page.getByRole('spinbutton', { name: /^Ширина/ }).press('Enter')
   await page.getByRole('button', { name: 'Выбрать столешницу', exact: true }).click()
   await expect(length).toHaveValue('1400')
+
+  await expect(page.getByRole('status')).toHaveText('Сохранено')
 
   await page.reload()
   await selectBase(1200)

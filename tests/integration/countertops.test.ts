@@ -3,6 +3,7 @@ import { useAppStore } from '@/application/project'
 import type { FurnitureItem, Room } from '@/domain/model'
 import { cabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
 import { furnitureFromWallAnchor } from '@/domain/placement/wallAnchors'
+import { normalizeProjectDocument, partializeProject } from '@/application/project/persistence'
 import { makeFurniture, makeRoom } from '../fixtures'
 
 function resetStore() {
@@ -341,7 +342,7 @@ describe('automatic countertop actions', () => {
 })
 
 describe('automatic countertop persistence', () => {
-  it('restores metadata, recomputes saved geometry and preserves a legacy manual countertop', async () => {
+  it('restores metadata, recomputes saved geometry and preserves a legacy manual countertop', () => {
     const manual = makeFurniture('countertop', {
       id: 'manual',
       position: { x: 2000, y: 1800 },
@@ -351,18 +352,16 @@ describe('automatic countertop persistence', () => {
     useAppStore.setState({ furniture: [base('base', 1000), manual] })
     useAppStore.getState().addCountertopForRow('base')
     const countertopId = countertops().find((candidate) => candidate.autoCountertop)!.id
-    const saved = JSON.parse(localStorage.getItem('future-furniture-project')!) as {
-      state: { furniture: FurnitureItem[] }
-    }
-    const savedTop = saved.state.furniture.find((candidate) => candidate.id === countertopId)!
+    const saved = structuredClone(partializeProject(useAppStore.getState()))
+    const savedTop = saved.furniture.find((candidate) => candidate.id === countertopId)!
     expect(savedTop.autoCountertop).toEqual({ supportIds: ['base'], frontOverhang: 40 })
     savedTop.params.width = 3200
     savedTop.elevation = 1000
     savedTop.position = { x: 2500, y: 1500 }
 
     resetStore()
-    localStorage.setItem('future-furniture-project', JSON.stringify(saved))
-    await useAppStore.persist.rehydrate()
+    const restored = normalizeProjectDocument(saved, useAppStore.getState(), () => crypto.randomUUID())!
+    useAppStore.setState(restored)
 
     expect(item(countertopId)).toMatchObject({
       position: { x: 1000, y: 350 },

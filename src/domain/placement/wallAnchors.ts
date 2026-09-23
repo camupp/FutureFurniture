@@ -4,7 +4,6 @@ import { inwardWallNormal, offsetAlongWall } from '@/domain/room/openings'
 
 const INFER_DISTANCE_TOLERANCE = 35
 const INFER_ANGLE_TOLERANCE = 1
-const WALL_JOINT_TOLERANCE = 1
 
 export type WallFrame = {
   wall: Wall
@@ -35,10 +34,6 @@ export type WallUsableRange = {
   start: number
   /** Последняя точка внутренней грани стены, не занятая примыкающей стеной. */
   end: number
-}
-
-function samePoint(a: Point, b: Point): boolean {
-  return Math.hypot(a.x - b.x, a.y - b.y) <= WALL_JOINT_TOLERANCE
 }
 
 function clipAtLocalY(polygon: Point[], boundary: number, keepAbove: boolean): Point[] {
@@ -91,32 +86,21 @@ function wallRectangleInFrame(other: Wall, host: Wall, side: WallSide): Point[] 
   })
 }
 
-/**
- * Возвращает свободный от угловых стыков отрезок стены.
- *
- * Координаты стен проходят по их оси. Пересекаем тело примыкающей стены с
- * полосой, которую занимает мебель по глубине, поэтому расчёт работает и для
- * косых/вогнутых углов, и для обеих сторон стены.
- */
-export function wallUsableRange(
+/** Все свободные интервалы у стены после вычитания тел остальных стен. */
+export function wallUsableRanges(
   item: FurnitureItem,
   wall: Wall,
   walls: Wall[],
   side: WallSide,
   distanceFromWall = 0,
-): WallUsableRange {
+): WallUsableRange[] {
   const frame = wallFrame(wall)
   const depthStart = wall.thickness / 2 + distanceFromWall
   const depthEnd = depthStart + item.params.depth
-  let start = 0
-  let end = frame.length
+  const blocked: WallUsableRange[] = []
 
   for (const other of walls) {
     if (other.id === wall.id || wallLength(other) < 1) continue
-    const connectedToStart = samePoint(other.start, wall.start) || samePoint(other.end, wall.start)
-    const connectedToEnd = samePoint(other.start, wall.end) || samePoint(other.end, wall.end)
-    if (!connectedToStart && !connectedToEnd) continue
-
     const inFurnitureBand = clipAtLocalY(
       clipAtLocalY(wallRectangleInFrame(other, wall, side), depthStart, true),
       depthEnd,
@@ -131,14 +115,38 @@ export function wallUsableRange(
     // Касание границей допустимо: оно не создаёт фактического пересечения тел.
     if (maxAlong - minAlong <= 0.01 || Math.max(...across) - Math.min(...across) <= 0.01) continue
 
-    if (connectedToStart && maxAlong > 0) start = Math.max(start, maxAlong)
-    if (connectedToEnd && minAlong < frame.length) end = Math.min(end, minAlong)
+    if (maxAlong > 0 && minAlong < frame.length) {
+      blocked.push({ start: Math.max(0, minAlong), end: Math.min(frame.length, maxAlong) })
+    }
   }
 
-  return {
-    start: Math.min(frame.length, Math.max(0, start)),
-    end: Math.max(0, Math.min(frame.length, end)),
+  blocked.sort((a, b) => a.start - b.start || a.end - b.end)
+  const free: WallUsableRange[] = []
+  let cursor = 0
+  for (const interval of blocked) {
+    if (interval.start > cursor + 0.01) free.push({ start: cursor, end: interval.start })
+    cursor = Math.max(cursor, interval.end)
   }
+  if (cursor < frame.length - 0.01) free.push({ start: cursor, end: frame.length })
+  return free
+}
+
+/** Совместимый одиночный интервал: ближайший к текущему центру блока. */
+export function wallUsableRange(
+  item: FurnitureItem,
+  wall: Wall,
+  walls: Wall[],
+  side: WallSide,
+  distanceFromWall = 0,
+): WallUsableRange {
+  const ranges = wallUsableRanges(item, wall, walls, side, distanceFromWall)
+  const preferred = item.wallAnchor?.offset ?? wallLength(wall) / 2
+  return (
+    ranges.sort(
+      (a, b) =>
+        Math.max(a.start - preferred, 0, preferred - a.end) - Math.max(b.start - preferred, 0, preferred - b.end),
+    )[0] ?? { start: wallLength(wall) / 2, end: wallLength(wall) / 2 }
+  )
 }
 
 export type WallAnchorOffsetLimits = {
@@ -154,16 +162,26 @@ export function wallAnchorOffsetLimits(
   walls: Wall[],
   side: WallSide = item.wallAnchor?.side ?? 'left',
   distanceFromWall = item.wallAnchor?.distance ?? 0,
+  preferredOffset = item.wallAnchor?.offset ?? wallLength(wall) / 2,
 ): WallAnchorOffsetLimits {
-  const usable = wallUsableRange(item, wall, walls, side, distanceFromWall)
   const half = item.params.width / 2
-  const min = usable.start + half
-  const max = usable.end - half
-  if (min <= max) return { min, max, fits: true }
+  const ranges = wallUsableRanges(item, wall, walls, side, distanceFromWall)
+  const fitting = ranges
+    .map((range) => ({ min: range.start + half, max: range.end - half, fits: true }))
+    .filter((range) => range.min <= range.max)
+  if (fitting.length) {
+    fitting.sort((a, b) => {
+      const aDistance = Math.max(a.min - preferredOffset, 0, preferredOffset - a.max)
+      const bDistance = Math.max(b.min - preferredOffset, 0, preferredOffset - b.max)
+      return aDistance - bDistance || a.min - b.min
+    })
+    return fitting[0]!
+  }
 
   // Если блок шире свободного участка, держим его по центру. Валидация при этом
   // всё равно покажет ошибку благодаря fits=false.
-  const center = (usable.start + usable.end) / 2
+  const widest = ranges.sort((a, b) => b.end - b.start - (a.end - a.start))[0]
+  const center = widest ? (widest.start + widest.end) / 2 : wallLength(wall) / 2
   return { min: center, max: center, fits: false }
 }
 
@@ -279,7 +297,7 @@ export function inferWallAnchor(item: FurnitureItem, room: Room, roomCenter: Poi
     if (angleDistance(item.rotation, rotationFacingWall(wall, side)) > INFER_ANGLE_TOLERANCE) continue
 
     const offset = offsetAlongWall(item.position, wall)
-    const limits = wallAnchorOffsetLimits(item, wall, room.walls, side, 0)
+    const limits = wallAnchorOffsetLimits(item, wall, room.walls, side, 0, offset)
     if (!limits.fits || offset < limits.min || offset > limits.max) continue
 
     const linePoint = wallPointAtOffset(wall, offset)

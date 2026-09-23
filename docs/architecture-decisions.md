@@ -57,17 +57,21 @@ React рекомендует выделять компоненты по назн
 Команды разбиты на `editorSlice`, `roomSlice`, `openingsSlice`, `utilitiesSlice` и
 `furnitureSlice`. Это части одного стора, а не пять независимых хранилищ. Каждый slice
 получает типизированные `set/get/newId`; `set` применяет общую транзакцию.
-`persist` подключён только при композиции, как рекомендует документация Zustand.
+Сохранение не находится внутри slices: `ProjectSession` подписывается на собранный store
+и записывает документ отдельно. Это позволяет переключать несколько проектов без
+пересоздания стора.
 [Zustand: Slices Pattern](https://zustand.docs.pmnd.rs/learn/guides/slices-pattern).
 
 ### 6. Отдельная граница сохранения
 
-`persistence.ts` отвечает за белый список сохраняемых полей, Zod-проверку,
-совместимость старых проектов и нормализацию при загрузке. UI не знает про localStorage.
-Ключ `future-furniture-project`, версия 0 и форма payload не меняются. В будущем переход
-к IndexedDB потребует отдельного решения об асинхронной загрузке и миграциях; сам перенос
-файла не делает такую замену бесплатной.
-[Zustand: Persisting store data](https://zustand.docs.pmnd.rs/reference/integrations/persisting-store-data).
+`persistence.ts` отвечает за белый список полей, Zod-проверку и нормализацию старых
+документов. `projectRepository.ts` инкапсулирует асинхронные транзакции IndexedDB,
+`projectSession.ts` — текущий проект, автосохранение и перенос старого Zustand payload.
+Старый ключ `future-furniture-project` удаляется только после подтверждённой записи в
+IndexedDB. Новый JSON-экспорт версионирован; импорт всегда создаёт отдельный проект.
+Встроенного API браузера достаточно для двух object stores, поэтому Dexie пока не добавлен.
+[MDN: IndexedDB API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API),
+[MDN: Storage quotas and eviction](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria).
 
 ### 7. Направленные зависимости и публичные входы модулей
 
@@ -100,7 +104,7 @@ index есть у модели данных. [FSD: Public API](https://feature-s
 dev-зависимостью, а не используется неявно из зависимостей Vite.
 [Babel: parser](https://babeljs.io/docs/babel-parser).
 
-Чистые тесты работают в Node, проверки DOM и persist — в jsdom. Оба набора запускаются
+Чистые тесты работают в Node, проверки DOM и проектной сессии — в jsdom. Оба набора запускаются
 одной командой через Vitest projects; Playwright по-прежнему проверяет настоящий браузер.
 jsdom не заменяет проверку WebGL или тач-жестов на устройстве.
 [Vitest: Test Projects](https://vitest.dev/guide/projects.html),

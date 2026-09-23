@@ -15,6 +15,7 @@ function createDefaultRoom(newId: () => string): Room {
   ]
   const walls: Wall[] = corners.map((corner, i) => ({
     id: newId(),
+    kind: 'boundary',
     start: corner,
     end: corners[(i + 1) % corners.length],
     thickness: DEFAULT_WALL_THICKNESS,

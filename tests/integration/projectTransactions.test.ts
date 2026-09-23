@@ -1,6 +1,6 @@
 import { beforeEach, expect, it } from 'vitest'
 import { useAppStore } from '@/application/project'
-import { partializeProject } from '@/application/project/persistence'
+import { mergePersistedProject, partializeProject } from '@/application/project/persistence'
 import { makeFurniture, makeRoom } from '../fixtures'
 
 beforeEach(() => {
@@ -21,8 +21,8 @@ it('notifies subscribers once with synchronized supports and countertop', () => 
   try {
     useAppStore.getState().updateFurnitureParams(base.id, { width: 900 })
     expect(snapshots).toEqual([[900, 900]])
-    const saved = JSON.parse(localStorage.getItem('future-furniture-project')!).state
-    expect(saved.furniture.find((item: { autoCountertop?: unknown }) => item.autoCountertop).params.width).toBe(900)
+    const saved = partializeProject(useAppStore.getState())
+    expect(saved.furniture.find((item) => item.autoCountertop)?.params.width).toBe(900)
   } finally {
     unsubscribe()
   }
@@ -43,13 +43,12 @@ it('does not recreate derived geometry for editor-only changes', () => {
   expect(useAppStore.getState().furniture).toBe(furniture)
 })
 
-it('retains the current project when persisted data is malformed', async () => {
+it('retains the current project when persisted data is malformed', () => {
   const room = useAppStore.getState().room
-  localStorage.setItem(
-    'future-furniture-project',
-    JSON.stringify({ state: { room: { walls: 'invalid' } }, version: 0 }),
+  const merged = mergePersistedProject({ room: { walls: 'invalid' } }, useAppStore.getState(), () =>
+    crypto.randomUUID(),
   )
-  await useAppStore.persist.rehydrate()
+  useAppStore.setState(merged)
   expect(useAppStore.getState().room).toBe(room)
   expect(typeof useAppStore.getState().addWall).toBe('function')
 })

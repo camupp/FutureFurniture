@@ -2,12 +2,25 @@ import { describe, expect, it } from 'vitest'
 import {
   assessUtilities,
   blocksOpening,
+  blocksWall,
   connectedUtilityIds,
   invalidOpeningIds,
   invalidUtilityIds,
   warningItemIds,
 } from '@/domain/validation/rules'
-import { makeFurniture, makeOpening, makeRoom, makeUtility } from '../../../fixtures'
+import { makeFurniture, makeOpening, makePartitionedRoom, makeRoom, makeUtility } from '../../../fixtures'
+
+describe('wall collisions', () => {
+  it('reports an unanchored cabinet crossing a partition', () => {
+    const cabinet = makeFurniture('cabinet', { position: { x: 1700, y: 2200 } })
+    expect(blocksWall(cabinet, makePartitionedRoom())).toBe(true)
+  })
+
+  it('does not report a cabinet beside a partition', () => {
+    const cabinet = makeFurniture('cabinet', { position: { x: 1320, y: 2200 } })
+    expect(blocksWall(cabinet, makePartitionedRoom())).toBe(false)
+  })
+})
 
 describe('opening validation', () => {
   it('checks plan and height together for a window', () => {

@@ -9,6 +9,7 @@ import { usePlanTools } from '@/features/plan-editor/hooks/usePlanTools'
 import { useAddMenu } from '@/features/plan-editor/hooks/useAddMenu'
 import { NumberField } from '@/shared/ui/NumberField'
 import { makeFurniture, makeOpening, makeRoom, makeUtility } from '../fixtures'
+import { roomPolygon } from '@/domain/geometry/geometry'
 
 let container: HTMLDivElement
 let root: Root
@@ -108,6 +109,34 @@ it('preserves wall drawing, orthogonal snapping and vertex loop closure after ho
   click(4, 3)
   expect(tools!.draft).toBeNull()
   expect(useAppStore.getState().room.walls).toHaveLength(4)
+})
+
+it('snaps an interior wall to the middle of a boundary without changing the floor', () => {
+  let tools: ReturnType<typeof usePlanTools>
+  function ToolsProbe() {
+    tools = usePlanTools(1)
+    return null
+  }
+  useAppStore.setState({ tool: 'wall' })
+  render(<ToolsProbe />)
+  let pointer = { x: 0, y: 0 }
+  const stage = { getPointerPosition: () => pointer, x: () => 0, y: () => 0, scaleX: () => 1, scaleY: () => 1 }
+  const event = { target: { getStage: () => stage } } as unknown as Konva.KonvaEventObject<MouseEvent>
+  const click = (x: number, y: number) => {
+    pointer = { x, y }
+    act(() => tools.handlePointerDown(event))
+  }
+
+  click(1704, 2996)
+  click(1700, 1300)
+
+  const walls = useAppStore.getState().room.walls
+  expect(walls[4]).toMatchObject({
+    kind: 'partition',
+    start: { x: 1700, y: 3000 },
+    end: { x: 1700, y: 1300 },
+  })
+  expect(roomPolygon(walls)).toHaveLength(4)
 })
 
 it('opens the floor menu on long press, cancels on movement and clears the timer on unmount', () => {

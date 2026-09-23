@@ -11,13 +11,35 @@ export const wallCenter = (wall: Wall): Point => ({
   y: (wall.start.y + wall.end.y) / 2,
 })
 
-/** Вершины контура помещения: стены считаются цепочкой. */
+/** Плановое тело стены по оси и толщине, независимо от её роли в контуре пола. */
+export function wallFootprint(wall: Wall): Point[] {
+  const angle = wallAngle(wall)
+  const normal = { x: (-Math.sin(angle) * wall.thickness) / 2, y: (Math.cos(angle) * wall.thickness) / 2 }
+  return [
+    { x: wall.start.x + normal.x, y: wall.start.y + normal.y },
+    { x: wall.end.x + normal.x, y: wall.end.y + normal.y },
+    { x: wall.end.x - normal.x, y: wall.end.y - normal.y },
+    { x: wall.start.x - normal.x, y: wall.start.y - normal.y },
+  ]
+}
+
+/** Первый замкнутый внешний контур. Старые проекты без kind читаются по порядку стен. */
+export function boundaryWalls(walls: Wall[]): Wall[] {
+  const candidates = walls.filter((wall) => wall.kind !== 'partition')
+  if (candidates.length < 3) return []
+  const chain: Wall[] = []
+  for (const wall of candidates) {
+    if (chain.length && distance(chain[chain.length - 1]!.end, wall.start) > 1) return []
+    chain.push(wall)
+    if (chain.length >= 3 && distance(wall.end, chain[0]!.start) <= 1) return chain
+  }
+  return []
+}
+
+/** Пол строится только по замкнутому внешнему контуру, а не по перегородкам. */
 export function roomPolygon(walls: Wall[]): Point[] {
-  if (walls.length === 0) return []
-  const points: Point[] = [walls[0].start]
-  for (const wall of walls) points.push(wall.end)
-  if (points.length > 2 && distance(points[0], points[points.length - 1]) < 1) points.pop()
-  return points
+  const boundary = boundaryWalls(walls)
+  return boundary.map((wall) => wall.start)
 }
 
 /** Четыре угла блока на плане с учётом поворота. */
@@ -52,9 +74,16 @@ export function setWallLength(walls: Wall[], wallId: string, newLength: number):
   const dx = newEnd.x - wall.end.x
   const dy = newEnd.y - wall.end.y
 
+  // Перегородки — независимые ветви графа, а не продолжение периметра.
+  const boundaryIds = new Set(boundaryWalls(walls).map((candidate) => candidate.id))
+  if (!boundaryIds.has(wallId)) {
+    return walls.map((candidate) => (candidate.id === wallId ? { ...candidate, end: newEnd } : candidate))
+  }
+
   return walls.map((w, i) => {
     if (i < index) return w
     if (i === index) return { ...w, end: newEnd }
+    if (!boundaryIds.has(w.id)) return w
     return {
       ...w,
       start: { x: w.start.x + dx, y: w.start.y + dy },
