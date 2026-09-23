@@ -74,6 +74,7 @@ test('keeps utility requirements on the lower sink host only', async ({ page }) 
     elevation: 1200,
     rotation: 0,
     params: { ...cabinetParams, height: 700, depth: 320 },
+    wallAnchor: { wallId: 'top', side: 'left', offset: 1800, distance: 0 },
   }
   const sink = {
     id: 'sink',
@@ -90,6 +91,7 @@ test('keeps utility requirements on the lower sink host only', async ({ page }) 
     elevation: 0,
     rotation: 0,
     params: cabinetParams,
+    wallAnchor: { wallId: 'top', side: 'left', offset: 1800, distance: 0 },
   }
   const utilities = ['water', 'sewer'].map((type) => ({
     id: type,
@@ -117,7 +119,7 @@ test('keeps utility requirements on the lower sink host only', async ({ page }) 
   })
   await expect(page.locator('aside')).toContainText('Подключения совместимы: Вода, Канализация')
 
-  await page.getByRole('button', { name: 'Вид спереди', exact: true }).click()
+  await page.getByRole('button', { name: 'Фасад стены', exact: true }).click()
   const elevation = page.getByTestId('elevation-editor').locator('.konvajs-content')
   await expect(elevation).toBeVisible()
   const elevationBox = await elevation.boundingBox()
@@ -140,4 +142,110 @@ test('exposes and toggles smart placement', async ({ page }) => {
   await expect(toggle).toBeChecked()
   await toggle.uncheck()
   await expect(toggle).not.toBeChecked()
+})
+
+test('opens the selected wall elevation and switches between walls', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [],
+    viewMode: '2d',
+    elevationWallId: 'right',
+  })
+
+  await page.getByRole('button', { name: 'Фасад стены', exact: true }).click()
+  await expect(page.getByText('Стена 2 из 4 · 3000 мм')).toBeVisible()
+  await page.getByRole('button', { name: '›', exact: true }).click()
+  await expect(page.getByText('Стена 3 из 4 · 3600 мм')).toBeVisible()
+})
+
+test('creates a row countertop, follows resizing, persists and switches to manual editing', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [1200, 1800].map((offset, index) => ({
+      id: `base-${index}`,
+      type: 'cabinet',
+      position: { x: offset, y: 330 },
+      elevation: 0,
+      rotation: 0,
+      params: cabinetParams,
+      wallAnchor: { wallId: 'top', side: 'left', offset, distance: 0 },
+    })),
+    viewMode: '2d',
+  })
+
+  const selectBase = async (offset: number) => {
+    const surface = await planSurface(page)
+    const box = (await surface.boundingBox())!
+    const scale = Math.min(box.width / 4800, box.height / 4200)
+    await surface.click({
+      position: { x: box.width / 2 + (offset - 1800) * scale, y: box.height / 2 + (330 - 1500) * scale },
+    })
+  }
+
+  await selectBase(1200)
+  await page.getByRole('button', { name: 'Столешница на ряд', exact: true }).click()
+  const length = page.getByRole('spinbutton', { name: /^Длина/ })
+  await expect(page.getByText('Автоподгон по ряду', { exact: true })).toBeVisible()
+  await expect(length).toHaveValue('1200')
+  await expect(length).toBeDisabled()
+  await expect(page.getByRole('spinbutton', { name: /^Глубина/ })).toHaveValue('600')
+
+  // Опоры остаются доступны на плане даже под автоматической столешницей.
+  await selectBase(1800)
+  await page.getByRole('spinbutton', { name: /^Ширина/ }).fill('800')
+  await page.getByRole('spinbutton', { name: /^Ширина/ }).press('Enter')
+  await page.getByRole('button', { name: 'Выбрать столешницу', exact: true }).click()
+  await expect(length).toHaveValue('1400')
+
+  await page.reload()
+  await selectBase(1200)
+  await page.getByRole('button', { name: 'Выбрать столешницу', exact: true }).click()
+  await expect(length).toHaveValue('1400')
+  await expect(length).toBeDisabled()
+  await page.getByRole('button', { name: 'Редактировать вручную', exact: true }).click()
+  await expect(length).toBeEnabled()
+  await length.fill('1600')
+  await length.press('Enter')
+  await expect(length).toHaveValue('1600')
+  await expect(page.getByText('Автоподгон по ряду', { exact: true })).toHaveCount(0)
+})
+
+test('builds one automatic L-shaped countertop over a free-standing blind corner', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [
+      {
+        id: 'first',
+        type: 'cabinet',
+        position: { x: 600, y: 280 },
+        elevation: 0,
+        rotation: 0,
+        params: { ...cabinetParams, width: 1200 },
+      },
+      {
+        id: 'second',
+        type: 'cabinet',
+        position: { x: 920, y: 860 },
+        elevation: 0,
+        rotation: 90,
+        params: cabinetParams,
+      },
+    ],
+    viewMode: '2d',
+  })
+
+  const surface = await planSurface(page)
+  const box = (await surface.boundingBox())!
+  const scale = Math.min(box.width / 4800, box.height / 4200)
+  await surface.click({
+    position: { x: box.width / 2 + (600 - 1800) * scale, y: box.height / 2 + (280 - 1500) * scale },
+  })
+  await page.getByRole('button', { name: 'Столешница на ряд', exact: true }).click()
+
+  await expect(page.getByText('Автоподгон угловой столешницы', { exact: true })).toBeVisible()
+  await expect(page.locator('aside')).toContainText('Тумб: 2')
+  await expect(page.getByRole('spinbutton', { name: /^Длина/ })).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Редактировать вручную', exact: true }).click()
+  await expect(page.getByText('Автоподгон угловой столешницы', { exact: true })).toHaveCount(0)
 })

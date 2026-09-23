@@ -5,7 +5,7 @@ TXT_RESET := \033[0m
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup setup-hooks setup-e2e setup-all dev start preview build typecheck lint lint-fix format format-check precommit test test-watch test-coverage test-e2e check ci audit
+.PHONY: help setup setup-hooks setup-e2e setup-all dev start preview build typecheck lint lint-fix format format-check precommit test test-watch test-coverage test-e2e test-architecture check ci audit
 
 define section
 @printf '$(TXT_BOLD)$(TXT_MAGENTA)========================= %-16s =========================$(TXT_RESET)\n' '$(1)'
@@ -29,6 +29,7 @@ help:
 	@printf '  $(TXT_BOLD)make test-watch$(TXT_RESET)     Запустить Vitest в watch-режиме\n'
 	@printf '  $(TXT_BOLD)make test-coverage$(TXT_RESET)  Построить отчёт покрытия\n'
 	@printf '  $(TXT_BOLD)make test-e2e$(TXT_RESET)       Запустить Playwright в Chromium\n'
+	@printf '  $(TXT_BOLD)make test-architecture$(TXT_RESET) Проверить границы импортов и циклы\n'
 	@printf '  $(TXT_BOLD)make check$(TXT_RESET)          Lint, формат, типы, тесты и сборка\n'
 	@printf '  $(TXT_BOLD)make ci$(TXT_RESET)             Полная проверка, включая E2E\n'
 	@printf '  $(TXT_BOLD)make audit$(TXT_RESET)          Проверить npm-зависимости\n'
@@ -104,6 +105,10 @@ test-coverage:
 test-e2e:
 	$(call section,PLAYWRIGHT)
 	@npm run test:e2e
+
+test-architecture:
+	$(call section,ARCHITECTURE)
+	@npm run test:architecture
 
 check:
 	$(call section,CHECK)
