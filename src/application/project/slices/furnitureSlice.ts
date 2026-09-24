@@ -4,6 +4,7 @@ import { findCountertopRow } from '@/domain/assemblies/countertops'
 import { roomPolygon } from '@/domain/geometry/geometry'
 import { bounds } from '@/shared/lib/geometry2d'
 import { placeBlock, placeBlockInSection, placeBlockOnWall } from '@/domain/placement/snapping'
+import { placeAtClearance } from '@/domain/placement/clearances'
 import { clamp } from '@/shared/lib/units'
 import { detachFromWall, furnitureFromWallAnchor } from '@/domain/placement/wallAnchors'
 import { clampParams, manualCountertop, autoCountertopRowIds } from '../furnitureHelpers'
@@ -20,6 +21,7 @@ export function createFurnitureSlice({
   | 'detachCountertop'
   | 'moveFurniture'
   | 'moveFurnitureAlongWall'
+  | 'setFurnitureClearance'
   | 'detachFurniture'
   | 'dropFurniture'
   | 'dropInSection'
@@ -29,6 +31,15 @@ export function createFurnitureSlice({
   | 'removeFurniture'
 > {
   return {
+    setFurnitureClearance: (id, reference, distance) => {
+      const state = get()
+      const item = state.furniture.find((candidate) => candidate.id === id)
+      if (!item) return 'Блок не найден'
+      const result = placeAtClearance(item, reference, distance, state.room, state.furniture)
+      if (result.error !== undefined) return result.error
+      set({ furniture: state.furniture.map((candidate) => (candidate.id === id ? result.item : candidate)) })
+      return null
+    },
     addBlock: (block) => {
       const state = get()
       const polygon = roomPolygon(state.room.walls)

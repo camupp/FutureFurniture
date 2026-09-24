@@ -218,13 +218,15 @@ function resolveOpeningOverlap(item: FurnitureItem, placement: Placement, room: 
  * Работает в локальной системе соседа: x — вдоль его ширины, y — вдоль глубины.
  */
 function snapToNeighbour(item: FurnitureItem, placement: Placement, others: FurnitureItem[]): Placement | null {
+  const candidates: { placement: Placement; distance: number; id: string }[] = []
   for (const other of others) {
     // Стыкуются только однотипные блоки: столешница ложится поверх тумб, а не в их линию.
     if (other.type !== item.type) continue
     // И только блоки одного ряда: навесной шкаф не встаёт в линию с напольной тумбой.
     if (Math.abs(item.elevation - other.elevation) > SAME_ROW_TOLERANCE) continue
     const angleDiff = Math.abs(((placement.rotation - other.rotation) % 360) + 360) % 360
-    const aligned = angleDiff < ALIGN_TOLERANCE_DEG || Math.abs(angleDiff - 180) < ALIGN_TOLERANCE_DEG
+    const sameFacing = angleDiff < ALIGN_TOLERANCE_DEG || 360 - angleDiff < ALIGN_TOLERANCE_DEG
+    const aligned = sameFacing || Math.abs(angleDiff - 180) < ALIGN_TOLERANCE_DEG
     if (!aligned) continue
 
     const local = rotatePoint(placement.position, other.position, -other.rotation)
@@ -235,10 +237,19 @@ function snapToNeighbour(item: FurnitureItem, placement: Placement, others: Furn
     if (Math.abs(dy) > item.params.depth / 2) continue
     if (Math.abs(Math.abs(dx) - contact) > NEIGHBOUR_GRAB) continue
 
-    const snappedLocal = { x: other.position.x + Math.sign(dx || 1) * contact, y: other.position.y }
-    return { position: rotatePoint(snappedLocal, other.position, other.rotation), rotation: placement.rotation }
+    const snappedLocal = {
+      x: other.position.x + Math.sign(dx || 1) * contact,
+      y: other.position.y + (sameFacing ? (other.params.depth - item.params.depth) / 2 : 0),
+    }
+    const position = rotatePoint(snappedLocal, other.position, other.rotation)
+    candidates.push({
+      placement: { position, rotation: placement.rotation },
+      distance: distance(position, placement.position),
+      id: other.id,
+    })
   }
-  return null
+  candidates.sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id))
+  return candidates[0]?.placement ?? null
 }
 
 /**

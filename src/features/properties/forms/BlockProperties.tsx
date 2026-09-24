@@ -1,8 +1,9 @@
 import { selectedFurniture, useAppStore } from '@/application/project'
 import { BLOCK_LABELS, BLOCK_LIMITS, ELEVATION_LIMITS, FACADE_COLORS, UTILITY_LABELS } from '@/domain/model'
 import { isCountertopSupport } from '@/domain/assemblies/countertops'
-import { wallAnchorIsValid, wallAnchorOffsetLimits } from '@/domain/placement/wallAnchors'
-import { assessUtilities, blocksOpening, collides, isItemInsideRoom } from '@/domain/validation/rules'
+import { wallAnchorOffsetLimits } from '@/domain/placement/wallAnchors'
+import { assessUtilities, itemPlacementIssues } from '@/domain/validation/rules'
+import { ClearanceControls } from '../ClearanceControls'
 import { HistoryNumberField as NumberField } from '../HistoryNumberField'
 import { DangerButton } from '@/shared/ui/DangerButton'
 
@@ -21,10 +22,7 @@ export function BlockProperties() {
   const removeFurniture = useAppStore((s) => s.removeFurniture)
   if (!item) return null
 
-  const outside = !isItemInsideRoom(item, room)
-  const invalidAnchor = !wallAnchorIsValid(item, room)
-  const overlapping = collides(item, furniture)
-  const coversOpening = blocksOpening(item, room)
+  const issues = itemPlacementIssues(item, furniture, room)
   const utilityAssessment = assessUtilities(item, furniture, room)
   const utilityWarnings = [...new Set(utilityAssessment.warnings)]
 
@@ -97,16 +95,15 @@ export function BlockProperties() {
           </button>
         </div>
       )}
-      {outside && <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок выходит за контур стен</p>}
-      {invalidAnchor && (
-        <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">
-          Блок не помещается по длине привязанной стены
+      {issues.map((issue) => (
+        <p
+          key={`${issue.code}:${issue.targetId ?? ''}`}
+          role="alert"
+          className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700"
+        >
+          {issue.message}
         </p>
-      )}
-      {overlapping && (
-        <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок пересекается с другим блоком</p>
-      )}
-      {coversOpening && <p className="rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-700">Блок перекрывает проём</p>}
+      ))}
       {utilityWarnings.map((warning) => (
         <p key={warning} className="rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
           {warning}
@@ -119,6 +116,7 @@ export function BlockProperties() {
         </p>
       )}
 
+      <ClearanceControls item={item} room={room} furniture={furniture} />
       <NumberField
         label={item.type === 'countertop' ? 'Длина' : 'Ширина'}
         value={item.params.width}

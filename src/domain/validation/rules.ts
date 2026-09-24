@@ -5,6 +5,7 @@ import { bounds, pointInPolygon } from '@/shared/lib/geometry2d'
 import { clampOffset, openingObstaclePolygons } from '@/domain/room/openings'
 import { utilityPoint } from '@/domain/room/utilities'
 import { wallAnchorIsValid } from '@/domain/placement/wallAnchors'
+import { placementObstacles } from './obstacles'
 
 /** Свободная зона вокруг вывода, необходимая для доступа и подключения. */
 export const UTILITY_CLEARANCE = 150
@@ -181,17 +182,24 @@ export function invalidUtilityIds(room: Room): Set<string> {
 
 /** Блоки, нарушающие хотя бы одно правило расстановки. */
 export function invalidItemIds(furniture: FurnitureItem[], room: Room): Set<string> {
-  const invalid = new Set<string>()
-  for (const item of furniture) {
-    if (
-      !wallAnchorIsValid(item, room) ||
-      !isItemInsideRoom(item, room) ||
-      blocksWall(item, room) ||
-      collides(item, furniture) ||
-      blocksOpening(item, room)
-    ) {
-      invalid.add(item.id)
-    }
-  }
-  return invalid
+  return new Set(
+    furniture.filter((item) => itemPlacementIssues(item, furniture, room).length > 0).map((item) => item.id),
+  )
+}
+
+export type PlacementIssue = {
+  code: 'outside' | 'anchor' | 'wall' | 'furniture' | 'opening' | 'door-swing'
+  message: string
+  targetId?: string
+}
+
+export function itemPlacementIssues(item: FurnitureItem, furniture: FurnitureItem[], room: Room): PlacementIssue[] {
+  const footprint = itemFootprint(item)
+  const issues: PlacementIssue[] = placementObstacles(item, room, furniture)
+    .filter((obstacle) => footprintsOverlap(footprint, obstacle.polygon))
+    .map((obstacle) => ({ code: obstacle.kind, message: obstacle.message, targetId: obstacle.id }))
+  if (!isItemInsideRoom(item, room)) issues.push({ code: 'outside', message: 'Блок выходит за контур помещения' })
+  if (!wallAnchorIsValid(item, room))
+    issues.push({ code: 'anchor', message: 'Блок не помещается на свободном участке привязанной стены' })
+  return issues
 }

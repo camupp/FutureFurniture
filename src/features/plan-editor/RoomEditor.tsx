@@ -7,13 +7,16 @@ import { roomPolygon } from '@/domain/geometry/geometry'
 import { bounds, distance, snapPoint } from '@/shared/lib/geometry2d'
 import { cabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
 import { clampOffset } from '@/domain/room/openings'
-import { placeBlock } from '@/domain/placement/snapping'
+import { placeBlock, type Placement } from '@/domain/placement/snapping'
+import { furnitureClearances } from '@/domain/placement/clearances'
+import { alignmentGuides } from '@/domain/placement/guides'
 import { useElementSize } from '@/shared/hooks/useElementSize'
 import { useStageViewport } from '@/shared/canvas/useStageViewport'
 import { utilityPoint, wallUtilityMount } from '@/domain/room/utilities'
 import {
   connectedUtilityIds,
   invalidItemIds,
+  itemPlacementIssues,
   invalidOpeningIds,
   invalidUtilityIds,
   warningItemIds,
@@ -28,6 +31,7 @@ import { usePlanTools } from './hooks/usePlanTools'
 import { useAddMenu } from './hooks/useAddMenu'
 import { usePlanKeyboard } from './hooks/usePlanKeyboard'
 import { ViewportGrid } from '@/shared/canvas/ViewportGrid'
+import { PlacementOverlay } from './components/PlacementOverlay'
 
 const GRID_STEP = 10
 
@@ -52,7 +56,23 @@ export function RoomEditor() {
     width,
     height,
   )
-  const [snapPreviewWallId, setSnapPreviewWallId] = useState<string | null>(null)
+  const [dragPreview, setDragPreview] = useState<{ id: string; placement: Placement } | null>(null)
+  const historyRevision = useAppStore((s) => s.historyRevision)
+  useEffect(() => setDragPreview(null), [historyRevision, tool])
+  const movingSource = dragPreview ? furniture.find((item) => item.id === dragPreview.id) : undefined
+  const measuredItem =
+    movingSource && dragPreview
+      ? { ...movingSource, ...dragPreview.placement, wallAnchor: dragPreview.placement.wallAnchor }
+      : selection?.kind === 'furniture'
+        ? furniture.find((item) => item.id === selection.id)
+        : undefined
+  const gaps = measuredItem ? furnitureClearances(measuredItem, room, furniture) : []
+  const previewIssues = measuredItem && dragPreview ? itemPlacementIssues(measuredItem, furniture, room) : []
+  const guides =
+    measuredItem && dragPreview && smartPlacement && previewIssues.length === 0
+      ? alignmentGuides(measuredItem, furniture)
+      : []
+  const snapPreviewWallId = dragPreview?.placement.wallAnchor?.wallId
 
   const polygon = useMemo(() => roomPolygon(room.walls), [room.walls])
   const invalid = useMemo(() => invalidItemIds(furniture, room), [furniture, room])
@@ -230,7 +250,7 @@ export function RoomEditor() {
                   (selection.id === item.id ||
                     Boolean(selectedCountertopGroup && item.autoCountertop?.groupId === selectedCountertopGroup))
                 }
-                invalid={invalid.has(item.id)}
+                invalid={dragPreview?.id === item.id ? previewIssues.length > 0 : invalid.has(item.id)}
                 warning={warnings.has(item.id)}
                 showLabel={!item.autoCountertop && visibleFurnitureLabels.has(item.id)}
                 draggable={tool === 'select' && !item.autoCountertop}
@@ -238,7 +258,7 @@ export function RoomEditor() {
                 frontLayout={cabinetFrontLayouts.get(item.id)}
                 onSelect={() => tool === 'select' && select({ kind: 'furniture', id: item.id })}
                 onMove={(position) => !item.autoCountertop && dropFurniture(item.id, position)}
-                onPreview={(placement) => setSnapPreviewWallId(placement?.wallAnchor?.wallId ?? null)}
+                onPreview={(placement) => setDragPreview(placement ? { id: item.id, placement } : null)}
                 resolve={(position) => resolvePlacement(item, position)}
               />
             ))}
@@ -293,6 +313,9 @@ export function RoomEditor() {
               </>
             )}
           </Layer>
+          <Layer listening={false}>
+            <PlacementOverlay gaps={gaps} guides={guides} furniture={furniture} scale={view.scale} />
+          </Layer>
         </Stage>
       )}
 
@@ -317,6 +340,19 @@ export function RoomEditor() {
         </div>
       </div>
 
+      {dragPreview && (previewIssues.length > 0 || guides.length > 0) && (
+        <div
+          aria-live="polite"
+          className={`pointer-events-none absolute bottom-3 left-3 max-w-sm rounded-md px-3 py-2 text-xs shadow-sm ${previewIssues.length ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-800'}`}
+        >
+          {previewIssues[0]?.message ??
+            (guides.some((guide) => guide.kind === 'front')
+              ? 'Фасады выровнены · сосед подсвечен зелёным'
+              : guides.some((guide) => guide.kind === 'contact')
+                ? 'Стык с соседним блоком'
+                : 'Торцы выровнены')}
+        </div>
+      )}
       {addMenu && (
         <AddContextMenu
           target={addMenu}

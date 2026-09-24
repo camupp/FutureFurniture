@@ -8,7 +8,7 @@ import { usePlanKeyboard } from '@/features/plan-editor/hooks/usePlanKeyboard'
 import { usePlanTools } from '@/features/plan-editor/hooks/usePlanTools'
 import { useAddMenu } from '@/features/plan-editor/hooks/useAddMenu'
 import { NumberField } from '@/shared/ui/NumberField'
-import { makeFurniture, makeOpening, makeRoom, makeUtility } from '../fixtures'
+import { makeFurniture, makeOpening, makeRoom, makeUtility, makePartitionedRoom } from '../fixtures'
 import { roomPolygon } from '@/domain/geometry/geometry'
 
 let container: HTMLDivElement
@@ -33,6 +33,24 @@ afterEach(() => {
 function render(node: ReactNode) {
   act(() => root.render(node))
 }
+
+it('explains a partition collision in the selected block properties', () => {
+  useAppStore.setState({
+    room: makePartitionedRoom(),
+    furniture: [makeFurniture('cabinet', { position: { x: 1700, y: 2200 } })],
+    selection: { kind: 'furniture', id: 'cabinet-1' },
+  })
+  render(<PropertiesPanel />)
+  expect(container.textContent).toContain('Пересекается с перегородкой')
+})
+
+it('renders exact gap controls for a selected cabinet', () => {
+  useAppStore.setState({ furniture: [makeFurniture()], selection: { kind: 'furniture', id: 'cabinet-1' } })
+  render(<PropertiesPanel />)
+  const section = container.querySelector('[aria-label="Точные зазоры"]')!
+  expect(section.querySelectorAll('input[type=number]')).toHaveLength(4)
+  expect(section.textContent).toContain('Перед фасадом')
+})
 
 it('routes each selection to the corresponding property form', () => {
   useAppStore.setState({

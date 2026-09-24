@@ -10,6 +10,7 @@ import {
   type UtilityType,
 } from '@/domain/model'
 import type { ProjectHistory } from './history'
+import type { ClearanceReference } from '@/domain/placement/clearances'
 
 export type Tool = 'select' | 'wall' | 'window' | 'door' | 'utility' | 'pan'
 export type ViewMode = '2d' | 'split' | '3d'
@@ -72,6 +73,7 @@ export type AppState = Project & {
   /** Точное перемещение: из панели свойств и вида по высоте. */
   moveFurniture: (id: string, position: Point) => void
   moveFurnitureAlongWall: (id: string, offset: number) => void
+  setFurnitureClearance: (id: string, reference: ClearanceReference, distance: number) => string | null
   detachFurniture: (id: string) => void
   /** Перетаскивание на плане: применяет привязки к стенам и соседям. */
   dropFurniture: (id: string, position: Point) => void
