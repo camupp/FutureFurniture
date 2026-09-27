@@ -9,6 +9,7 @@ import { displayToWallOffset, wallNormal, wallPointAtOffset } from '@/domain/pla
 import { connectedUtilityIds, invalidItemIds, invalidUtilityIds, warningItemIds } from '@/domain/validation/rules'
 import { useElevationModel } from './hooks/useElevationModel'
 import { FurnitureElevationShape } from './components/FurnitureElevationShape'
+import { cabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
 
 const HEIGHT_GUIDE_STEP = 500
 
@@ -258,6 +259,7 @@ export function ElevationEditor() {
                   isInvalid={invalid.has(item.id)}
                   hasWarning={warnings.has(item.id)}
                   draggable={tool === 'select' && !item.autoCountertop}
+                  frontLayout={item.type === 'cabinet' ? cabinetFrontLayout(item, furniture) : undefined}
                   resolvePlacement={resolvePlacement}
                   onSelect={() => {
                     if (tool === 'select') select({ kind: 'furniture', id: item.id })

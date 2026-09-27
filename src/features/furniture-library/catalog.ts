@@ -1,8 +1,9 @@
-import { BUILT_IN_FLANGE, type BlockParams, type BlockType } from '@/domain/model'
+import { BUILT_IN_FLANGE, type BlockParams, type BlockType, type CabinetModule } from '@/domain/model'
+import { CABINET_FAMILIES } from '@/domain/modules/cabinetFamilies'
 
 /**
- * Пресет — это набор дефолтов поверх одной из геометрий. Навесной шкаф и пенал —
- * тот же `cabinet`, отличаются габаритами и высотой установки.
+ * Пресет — стартовый экземпляр семейства поверх общей геометрии `cabinet`.
+ * Напольный, навесной и пенал имеют разные размерные и фасадные правила.
  */
 export type BlockPreset = {
   id: string
@@ -11,6 +12,7 @@ export type BlockPreset = {
   type: BlockType
   elevation: number
   params: BlockParams
+  cabinetModule?: CabinetModule
 }
 
 const OAK = '#d3bb98'
@@ -41,6 +43,7 @@ export const BLOCK_PRESETS: BlockPreset[] = [
     type: 'cabinet',
     elevation: 0,
     params: { width: 600, height: WORKTOP_LEVEL, depth: 560, facadeColor: OAK },
+    cabinetModule: { familyId: CABINET_FAMILIES['base-storage'].id, version: 1, facade: 'single-door' },
   },
   {
     id: 'wall-cabinet',
@@ -49,6 +52,7 @@ export const BLOCK_PRESETS: BlockPreset[] = [
     type: 'cabinet',
     elevation: 1400,
     params: { width: 600, height: 700, depth: 320, facadeColor: OAK },
+    cabinetModule: { familyId: CABINET_FAMILIES['wall-storage'].id, version: 1, facade: 'single-door' },
   },
   {
     id: 'tall-cabinet',
@@ -57,6 +61,7 @@ export const BLOCK_PRESETS: BlockPreset[] = [
     type: 'cabinet',
     elevation: 0,
     params: { width: 600, height: 2100, depth: 560, facadeColor: OAK },
+    cabinetModule: { familyId: CABINET_FAMILIES['tall-storage'].id, version: 1, facade: 'stacked-doors' },
   },
   {
     id: 'countertop',

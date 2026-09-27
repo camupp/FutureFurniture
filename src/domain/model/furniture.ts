@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { pointSchema } from './point'
+import { CABINET_FAMILIES, CABINET_HANDLE_SIDES, CABINET_HANDLE_STYLES } from '../modules/cabinetFamilies'
 
 export const BLOCK_TYPES = ['cabinet', 'countertop', 'sink', 'hob'] as const
 export type BlockType = (typeof BLOCK_TYPES)[number]
@@ -96,6 +97,33 @@ export const autoCountertopSchema = z.object({
   groupId: z.string().optional(),
 })
 
+const cabinetHardwareShape = {
+  handleStyle: z.enum(CABINET_HANDLE_STYLES).optional(),
+  handleSide: z.enum(CABINET_HANDLE_SIDES).optional(),
+}
+
+export const cabinetModuleSchema = z.discriminatedUnion('familyId', [
+  z.object({
+    familyId: z.literal(CABINET_FAMILIES['base-storage'].id),
+    version: z.literal(1),
+    facade: z.enum(['single-door', 'double-door', 'three-drawers']),
+    ...cabinetHardwareShape,
+  }),
+  z.object({
+    familyId: z.literal(CABINET_FAMILIES['wall-storage'].id),
+    version: z.literal(1),
+    facade: z.enum(['single-door', 'double-door', 'lift-up']),
+    ...cabinetHardwareShape,
+  }),
+  z.object({
+    familyId: z.literal(CABINET_FAMILIES['tall-storage'].id),
+    version: z.literal(1),
+    facade: z.enum(['stacked-doors', 'full-door']),
+    ...cabinetHardwareShape,
+  }),
+])
+export type CabinetModule = z.infer<typeof cabinetModuleSchema>
+
 export const furnitureItemSchema = z.object({
   id: z.string(),
   /** Тип определяет геометрию внутри габаритного ящика. */
@@ -110,5 +138,6 @@ export const furnitureItemSchema = z.object({
   /** Заполняется только у мебели, которую пользователь прикрепил к стене. */
   wallAnchor: wallAnchorSchema.optional(),
   autoCountertop: autoCountertopSchema.optional(),
+  cabinetModule: cabinetModuleSchema.optional(),
 })
 export type FurnitureItem = z.infer<typeof furnitureItemSchema>

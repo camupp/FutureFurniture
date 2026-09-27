@@ -371,6 +371,7 @@ describe('automatic countertop persistence', () => {
     })
     expect(item('manual')).toEqual(manual)
 
+    useAppStore.getState().setCabinetFacade('base', 'double-door')
     useAppStore.getState().updateFurnitureParams('base', { width: 1000 })
     expect(item(countertopId).params.width).toBe(1000)
     expect(item('manual')).toEqual(manual)

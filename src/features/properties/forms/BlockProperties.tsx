@@ -6,12 +6,20 @@ import { assessUtilities, itemPlacementIssues } from '@/domain/validation/rules'
 import { ClearanceControls } from '../ClearanceControls'
 import { HistoryNumberField as NumberField } from '../HistoryNumberField'
 import { DangerButton } from '@/shared/ui/DangerButton'
+import {
+  CABINET_FAMILIES,
+  cabinetFacadeAcceptsWidth,
+  cabinetFacadeSpec,
+  cabinetModuleFor,
+} from '@/domain/modules/cabinetFamilies'
 
 export function BlockProperties() {
   const item = useAppStore(selectedFurniture)
   const room = useAppStore((s) => s.room)
   const furniture = useAppStore((s) => s.furniture)
   const updateParams = useAppStore((s) => s.updateFurnitureParams)
+  const setCabinetFacade = useAppStore((s) => s.setCabinetFacade)
+  const updateCabinetHardware = useAppStore((s) => s.updateCabinetHardware)
   const elevateFurniture = useAppStore((s) => s.elevateFurniture)
   const rotateFurniture = useAppStore((s) => s.rotateFurniture)
   const moveFurniture = useAppStore((s) => s.moveFurniture)
@@ -25,8 +33,22 @@ export function BlockProperties() {
   const issues = itemPlacementIssues(item, furniture, room)
   const utilityAssessment = assessUtilities(item, furniture, room)
   const utilityWarnings = [...new Set(utilityAssessment.warnings)]
+  const cabinetModule = cabinetModuleFor(item)
+  const family = cabinetModule ? CABINET_FAMILIES[cabinetModule.familyId] : null
+  const facadeSpec = cabinetModule ? cabinetFacadeSpec(cabinetModule.familyId, cabinetModule.facade) : null
 
-  const limits = BLOCK_LIMITS[item.type]
+  const limits =
+    family && facadeSpec
+      ? {
+          width: {
+            ...family.dimensions.width,
+            min: facadeSpec.minWidth,
+            max: facadeSpec.maxWidth,
+          },
+          height: family.dimensions.height,
+          depth: family.dimensions.depth,
+        }
+      : BLOCK_LIMITS[item.type]
   const anchorWall = item.wallAnchor
     ? room.walls.find((candidate) => candidate.id === item.wallAnchor?.wallId)
     : undefined
@@ -54,7 +76,7 @@ export function BlockProperties() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm font-medium text-slate-800">{BLOCK_LABELS[item.type]}</p>
+      <p className="text-sm font-medium text-slate-800">{family ? family.purpose : BLOCK_LABELS[item.type]}</p>
       {item.wallAnchor && anchorWall && (
         <div className="-mt-2 flex items-center justify-between gap-2 rounded-md bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
           <span>Прикреплён к стене {anchorWallIndex + 1}</span>
@@ -137,6 +159,104 @@ export function BlockProperties() {
         disabled={automatic}
         onChange={(depth) => updateParams(item.id, { depth })}
       />
+
+      {cabinetModule && family && (
+        <div className="space-y-2">
+          <span className="block text-xs font-medium text-slate-600">Фасадная схема</span>
+          <div className="grid gap-1.5">
+            {family.facades.map((facade) => {
+              const compatible = cabinetFacadeAcceptsWidth(cabinetModule.familyId, facade.id, item.params.width)
+              return (
+                <button
+                  key={facade.id}
+                  type="button"
+                  disabled={!compatible}
+                  title={compatible ? undefined : `Доступно при ширине ${facade.minWidth}–${facade.maxWidth} мм`}
+                  onClick={() => setCabinetFacade(item.id, facade.id)}
+                  className={`rounded-md border px-2 py-1.5 text-left text-xs disabled:cursor-not-allowed disabled:opacity-40 ${
+                    cabinetModule.facade === facade.id
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {facade.label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-slate-500">
+            Типовые ширины: {family.dimensions.width.preferred.join(', ')} мм. Допустимы и промежуточные размеры с шагом
+            10 мм.
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {family.dimensions.width.preferred.map((width) => (
+              <button
+                key={width}
+                type="button"
+                disabled={!cabinetFacadeAcceptsWidth(cabinetModule.familyId, cabinetModule.facade, width)}
+                onClick={() => updateParams(item.id, { width })}
+                className={`rounded border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40 ${
+                  item.params.width === width
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 text-slate-600'
+                }`}
+              >
+                {width}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-1.5 border-t border-slate-200 pt-2">
+            <span className="block text-xs font-medium text-slate-600">Ручки</span>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  { value: 'bar', label: 'Скоба' },
+                  { value: 'knob', label: 'Кнопка' },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => updateCabinetHardware(item.id, { handleStyle: option.value })}
+                  className={`rounded-md border px-2 py-1.5 text-xs ${
+                    (cabinetModule.handleStyle ?? 'bar') === option.value
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {['single-door', 'full-door', 'stacked-doors'].includes(cabinetModule.facade) && (
+            <div className="space-y-1.5">
+              <span className="block text-xs font-medium text-slate-600">Сторона ручки</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(
+                  [
+                    { value: 'left', label: 'Слева' },
+                    { value: 'right', label: 'Справа' },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => updateCabinetHardware(item.id, { handleSide: option.value })}
+                    className={`rounded-md border px-2 py-1.5 text-xs ${
+                      (cabinetModule.handleSide ?? 'right') === option.value
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div>
         <span className="mb-1.5 block text-xs font-medium text-slate-600">Цвет</span>

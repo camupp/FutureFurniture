@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { ProjectSession } from '@/application/project/projectSession'
 import type { ProjectRecord, ProjectRepository } from '@/application/project/projectRepository'
 import { canRedo, canUndo, useAppStore } from '@/application/project'
-import { makeRoom } from '../fixtures'
+import { makeFurniture, makeRoom } from '../fixtures'
+import { BLOCK_PRESETS } from '@/features/furniture-library/catalog'
+import { partializeProject } from '@/application/project/persistence'
 
 class MemoryRepository implements ProjectRepository {
   records = new Map<string, ProjectRecord>()
@@ -48,6 +50,53 @@ beforeEach(() => {
 })
 
 describe('project session', () => {
+  it('opens an older cabinet sketch with the new facade family without deleting its stored record', async () => {
+    const repository = new MemoryRepository()
+    repository.selected = 'old-sketch'
+    repository.records.set('old-sketch', {
+      id: 'old-sketch',
+      name: 'Старый эскиз',
+      createdAt: 1,
+      updatedAt: 1,
+      data: partializeProject({ ...useAppStore.getState(), furniture: [makeFurniture()] }),
+    })
+    const session = new ProjectSession(repository, new MemoryLegacyStorage(), useAppStore)
+    await session.initialize()
+    try {
+      expect(useAppStore.getState().furniture).toHaveLength(1)
+      expect(useAppStore.getState().furniture[0]?.cabinetModule).toEqual({
+        familyId: 'base-storage',
+        version: 1,
+        facade: 'single-door',
+      })
+      expect(repository.records.has('old-sketch')).toBe(true)
+    } finally {
+      session.dispose()
+    }
+  })
+
+  it('retains a configured base cabinet when reopening a project', async () => {
+    const repository = new MemoryRepository()
+    const session = new ProjectSession(repository, new MemoryLegacyStorage(), useAppStore)
+    await session.initialize()
+    try {
+      const firstId = session.getSnapshot().currentId!
+      useAppStore.getState().addBlock(BLOCK_PRESETS.find((preset) => preset.id === 'base-cabinet')!)
+      const cabinetId = useAppStore.getState().furniture[0]!.id
+      useAppStore.getState().setCabinetFacade(cabinetId, 'three-drawers')
+      await session.create('Другой проект')
+      expect(useAppStore.getState().furniture).toHaveLength(0)
+      await session.open(firstId)
+      expect(useAppStore.getState().furniture[0]?.cabinetModule).toEqual({
+        familyId: 'base-storage',
+        version: 1,
+        facade: 'three-drawers',
+      })
+    } finally {
+      session.dispose()
+    }
+  })
+
   it('saves an undo performed while an earlier IndexedDB write is still in flight', async () => {
     const repository = new MemoryRepository()
     const session = new ProjectSession(repository, new MemoryLegacyStorage(), useAppStore)

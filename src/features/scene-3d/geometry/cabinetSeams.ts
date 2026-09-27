@@ -1,6 +1,7 @@
 import type { CabinetFrontLayout, CabinetFrontInterval } from '@/domain/assemblies/cabinetJoints'
+import { CABINET_FACADE_GAP } from '@/domain/assemblies/cabinetFaces'
 
-export const CABINET_FACADE_GAP = 3
+export { CABINET_FACADE_GAP }
 
 /** Узкая вставка занимает только зазор между фасадами, не пересекая ни одну дверцу. */
 export function innerFacadeSeamFootprint(

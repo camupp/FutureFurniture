@@ -1,4 +1,10 @@
-import { BLOCK_LIMITS, type FurnitureItem } from '@/domain/model'
+import {
+  BLOCK_LIMITS,
+  cabinetModuleSchema,
+  type BlockParams,
+  type CabinetModule,
+  type FurnitureItem,
+} from '@/domain/model'
 import { snapElevation } from '@/domain/placement/elevation'
 import { findCountertopRow } from '@/domain/assemblies/countertops'
 import { roomPolygon } from '@/domain/geometry/geometry'
@@ -8,7 +14,28 @@ import { placeAtClearance } from '@/domain/placement/clearances'
 import { clamp } from '@/shared/lib/units'
 import { detachFromWall, furnitureFromWallAnchor } from '@/domain/placement/wallAnchors'
 import { clampParams, manualCountertop, autoCountertopRowIds } from '../furnitureHelpers'
+import {
+  CABINET_FAMILIES,
+  cabinetFacadeAcceptsWidth,
+  cabinetFacadeSpec,
+  cabinetModuleFor,
+  cabinetModuleForNewBlock,
+} from '@/domain/modules/cabinetFamilies'
 import type { AppState, SliceContext } from '../types'
+
+function clampModuleParams(params: BlockParams, cabinetModule?: CabinetModule): BlockParams {
+  if (!cabinetModule) return params
+  const dimensions = CABINET_FAMILIES[cabinetModule.familyId].dimensions
+  const facade = cabinetFacadeSpec(cabinetModule.familyId, cabinetModule.facade)!
+  const fit = (value: number, min: number, max: number, step: number) =>
+    clamp(min + Math.round((clamp(value, min, max) - min) / step) * step, min, max)
+  return {
+    ...params,
+    width: fit(params.width, facade.minWidth, facade.maxWidth, dimensions.width.step),
+    height: fit(params.height, dimensions.height.min, dimensions.height.max, dimensions.height.step),
+    depth: fit(params.depth, dimensions.depth.min, dimensions.depth.max, dimensions.depth.step),
+  }
+}
 
 export function createFurnitureSlice({
   set,
@@ -28,6 +55,8 @@ export function createFurnitureSlice({
   | 'elevateFurniture'
   | 'rotateFurniture'
   | 'updateFurnitureParams'
+  | 'setCabinetFacade'
+  | 'updateCabinetHardware'
   | 'removeFurniture'
 > {
   return {
@@ -44,13 +73,15 @@ export function createFurnitureSlice({
       const state = get()
       const polygon = roomPolygon(state.room.walls)
       const center = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
+      const cabinetModule = block.cabinetModule ?? cabinetModuleForNewBlock(block.type, block.elevation, block.params)
       const item: FurnitureItem = {
         id: newId(),
         type: block.type,
         position: center,
         elevation: block.elevation,
         rotation: 0,
-        params: clampParams(block.type, block.params),
+        params: clampModuleParams(clampParams(block.type, block.params), cabinetModule ?? undefined),
+        cabinetModule: cabinetModule ?? undefined,
       }
       set({ furniture: [...state.furniture, item], selection: { kind: 'furniture', id: item.id }, tool: 'select' })
     },
@@ -228,7 +259,10 @@ export function createFurnitureSlice({
                 },
               }
             }
-            const resized = { ...item, params: clampParams(item.type, { ...item.params, ...patch }) }
+            const rawParams = clampParams(item.type, { ...item.params, ...patch })
+            const cabinetModule = item.cabinetModule ?? cabinetModuleForNewBlock(item.type, item.elevation, rawParams)
+            const params = clampModuleParams(rawParams, cabinetModule ?? undefined)
+            const resized = { ...item, params, cabinetModule: cabinetModule ?? undefined }
             if (!resized.wallAnchor) return resized
             const wall = state.room.walls.find((candidate) => candidate.id === resized.wallAnchor?.wallId)
             if (!wall) return detachFromWall(resized)
@@ -252,6 +286,32 @@ export function createFurnitureSlice({
           }),
         }
       }),
+
+    setCabinetFacade: (id, facade) =>
+      set((state) => ({
+        furniture: state.furniture.map((item) => {
+          if (item.id !== id) return item
+          const module = cabinetModuleFor(item)
+          if (!module || !cabinetFacadeAcceptsWidth(module.familyId, facade, item.params.width)) return item
+          const updated = cabinetModuleSchema.safeParse({ ...module, facade })
+          return updated.success ? { ...item, cabinetModule: updated.data } : item
+        }),
+      })),
+
+    updateCabinetHardware: (id, patch) =>
+      set((state) => ({
+        furniture: state.furniture.map((item) => {
+          if (item.id !== id) return item
+          const module = cabinetModuleFor(item)
+          if (!module) return item
+          if (
+            (patch.handleStyle ?? module.handleStyle ?? 'bar') === (module.handleStyle ?? 'bar') &&
+            (patch.handleSide ?? module.handleSide ?? 'right') === (module.handleSide ?? 'right')
+          )
+            return item
+          return { ...item, cabinetModule: { ...module, ...patch } }
+        }),
+      })),
 
     removeFurniture: (id) =>
       set((state) => {

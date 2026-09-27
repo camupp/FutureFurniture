@@ -5,6 +5,7 @@ import { bounds } from '@/shared/lib/geometry2d'
 import { normalizeOpening } from '@/domain/room/openings'
 import { normalizeUtility, utilityPoint } from '@/domain/room/utilities'
 import { inferWallAnchor, syncFurnitureToWalls } from '@/domain/placement/wallAnchors'
+import { cabinetModuleFor } from '@/domain/modules/cabinetFamilies'
 import type { AppState, ViewMode } from './types'
 
 export const PROJECT_STORAGE_KEY = 'future-furniture-project'
@@ -58,8 +59,10 @@ export function mergePersistedProject(persisted: unknown, current: AppState, new
   const roomCenter = polygon.length ? bounds(polygon).center : { x: 0, y: 0 }
   const furniture = syncFurnitureToWalls(
     parsed.data.furniture.map((item) => {
-      const wallAnchor = item.wallAnchor ?? inferWallAnchor(item, room, roomCenter)
-      return wallAnchor ? { ...item, wallAnchor } : item
+      const cabinetModule = cabinetModuleFor(item)
+      const normalized = cabinetModule ? { ...item, cabinetModule } : item
+      const wallAnchor = normalized.wallAnchor ?? inferWallAnchor(normalized, room, roomCenter)
+      return wallAnchor ? { ...normalized, wallAnchor } : normalized
     }),
     room.walls,
   )

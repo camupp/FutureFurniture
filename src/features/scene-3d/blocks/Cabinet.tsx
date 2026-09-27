@@ -2,18 +2,16 @@ import { CABINET_FACADE_GAP, innerFacadeSeamFootprint } from '../geometry/cabine
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { mmToM } from '@/shared/lib/units'
-import type { BlockParams } from '@/domain/model'
+import type { BlockParams, CabinetModule } from '@/domain/model'
 import {
   CABINET_PLINTH_INSET,
   CABINET_PLINTH_JOIN_OVERLAP,
-  type CabinetFrontInterval,
   type CabinetFrontLayout,
 } from '@/domain/assemblies/cabinetJoints'
+import { CABINET_PLINTH_HEIGHT, cabinetFacePanels } from '@/domain/assemblies/cabinetFaces'
 import { buildSlab, type Cutout } from './slab'
 
-const PLINTH_HEIGHT = 100
 const FACADE_THICKNESS = 18
-const HANDLE_LENGTH = 128
 const CARCASS_COLOR = '#d9d5cf'
 const OUTER_SEAM_COVER_THICKNESS = 1
 const OUTER_PLINTH_SEAM_COVER_WIDTH = 6
@@ -30,12 +28,18 @@ export function Cabinet({
   onFloor = true,
   cutouts = [],
   frontLayout,
-}: BlockParams & { onFloor?: boolean; cutouts?: Cutout[]; frontLayout?: CabinetFrontLayout }) {
+  module,
+}: BlockParams & {
+  onFloor?: boolean
+  cutouts?: Cutout[]
+  frontLayout?: CabinetFrontLayout
+  module: CabinetModule
+}) {
   const w = mmToM(width)
   const h = mmToM(height)
   const d = mmToM(depth)
   // Поднятый над полом блок — навесной, цоколя у него нет.
-  const plinth = onFloor ? mmToM(PLINTH_HEIGHT) : 0
+  const plinth = onFloor ? mmToM(CABINET_PLINTH_HEIGHT) : 0
   const facadeThickness = mmToM(FACADE_THICKNESS)
   const gap = mmToM(CABINET_FACADE_GAP)
 
@@ -55,7 +59,7 @@ export function Cabinet({
       buildSlab(
         width,
         depth - FACADE_THICKNESS,
-        height - (onFloor ? PLINTH_HEIGHT : 0),
+        height - (onFloor ? CABINET_PLINTH_HEIGHT : 0),
         cutouts,
         -depth / 2 + (depth - FACADE_THICKNESS) / 2,
       ),
@@ -65,10 +69,7 @@ export function Cabinet({
 
   const doorHeight = bodyHeight - gap * 2
   const doorZ = d / 2 - facadeThickness / 2
-  // У напольного шкафа ручка вверху дверцы, у навесного — внизу: до неё надо дотянуться.
-  const handleY = onFloor ? plinth + bodyHeight - mmToM(120) : plinth + mmToM(120)
-
-  const visibleIntervals: CabinetFrontInterval[] = frontLayout?.visible ?? [{ start: -width / 2, end: width / 2 }]
+  const panels = cabinetFacePanels(width, height, onFloor, frontLayout?.visible, module)
   const blockedIntervals = frontLayout?.blocked ?? []
   const plinthInterval = frontLayout?.plinth ?? {
     start: -width / 2,
@@ -157,27 +158,35 @@ export function Cabinet({
         )
       })}
 
-      {visibleIntervals.flatMap((interval, intervalIndex) => {
-        const intervalWidth = interval.end - interval.start
-        const doorCount = intervalWidth > 600 ? 2 : 1
-        const doorWidth = (mmToM(intervalWidth) - gap * (doorCount + 1)) / doorCount
-        return Array.from({ length: doorCount }, (_, doorIndex) => {
-          const doorX = mmToM(interval.start) + gap + doorWidth / 2 + doorIndex * (doorWidth + gap)
-          const handleSide = doorCount === 1 ? 1 : doorIndex === 0 ? 1 : -1
-          const handleX = doorX + handleSide * (doorWidth / 2 - mmToM(40))
-          return (
-            <group key={`door-${intervalIndex}-${doorIndex}`}>
-              <mesh position={[doorX, plinth + bodyHeight / 2, doorZ]} castShadow receiveShadow>
-                <boxGeometry args={[doorWidth, doorHeight, facadeThickness]} />
-                <meshStandardMaterial color={facadeColor} roughness={0.55} />
-              </mesh>
-              <mesh position={[handleX, handleY, d / 2 + mmToM(14)]} castShadow>
-                <boxGeometry args={[mmToM(16), mmToM(HANDLE_LENGTH), mmToM(16)]} />
+      {panels.map((panel, index) => {
+        const panelWidth = panel.right - panel.left
+        return (
+          <group key={`panel-${index}`}>
+            <mesh
+              position={[mmToM((panel.left + panel.right) / 2), mmToM((panel.bottom + panel.top) / 2), doorZ]}
+              castShadow
+              receiveShadow
+            >
+              <boxGeometry args={[mmToM(panelWidth), mmToM(panel.top - panel.bottom), facadeThickness]} />
+              <meshStandardMaterial color={facadeColor} roughness={0.55} />
+            </mesh>
+            {panel.handleStyle === 'knob' ? (
+              <mesh
+                position={[mmToM(panel.handleX), mmToM(panel.handleY), d / 2 + mmToM(10)]}
+                rotation={[Math.PI / 2, 0, 0]}
+                castShadow
+              >
+                <cylinderGeometry args={[mmToM(16), mmToM(16), mmToM(18), 20]} />
                 <meshStandardMaterial color="#9aa3ad" metalness={0.75} roughness={0.35} />
               </mesh>
-            </group>
-          )
-        })
+            ) : (
+              <mesh position={[mmToM(panel.handleX), mmToM(panel.handleY), d / 2 + mmToM(14)]} castShadow>
+                <boxGeometry args={[mmToM(panel.handleWidth), mmToM(panel.handleHeight), mmToM(16)]} />
+                <meshStandardMaterial color="#9aa3ad" metalness={0.75} roughness={0.35} />
+              </mesh>
+            )}
+          </group>
+        )
       })}
     </group>
   )

@@ -27,8 +27,9 @@ export {
   WALL_SIDES,
   wallAnchorSchema,
   autoCountertopSchema,
+  cabinetModuleSchema,
   furnitureItemSchema,
 } from './furniture'
-export type { BlockType, Limit, BlockParams, WallSide, WallAnchor, FurnitureItem } from './furniture'
+export type { BlockType, Limit, BlockParams, WallSide, WallAnchor, CabinetModule, FurnitureItem } from './furniture'
 export { projectSchema } from './project'
 export type { Project } from './project'

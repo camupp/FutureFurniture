@@ -52,6 +52,50 @@ it('renders exact gap controls for a selected cabinet', () => {
   expect(section.textContent).toContain('Перед фасадом')
 })
 
+it('changes the base cabinet handle style and side from its properties', () => {
+  useAppStore.setState({
+    furniture: [
+      makeFurniture('cabinet', { cabinetModule: { familyId: 'base-storage', version: 1, facade: 'single-door' } }),
+    ],
+    selection: { kind: 'furniture', id: 'cabinet-1' },
+  })
+  render(<PropertiesPanel />)
+  const button = (label: string) =>
+    [...container.querySelectorAll('button')].find((candidate) => candidate.textContent?.trim() === label)!
+  act(() => button('Кнопка').click())
+  act(() => button('Слева').click())
+  expect(useAppStore.getState().furniture[0]?.cabinetModule).toMatchObject({
+    handleStyle: 'knob',
+    handleSide: 'left',
+  })
+})
+
+it('offers tall and wall facade schemes without base drawers', () => {
+  const tall = makeFurniture('cabinet', {
+    params: { ...makeFurniture().params, height: 2100 },
+    cabinetModule: { familyId: 'tall-storage', version: 1, facade: 'stacked-doors' },
+  })
+  useAppStore.setState({ furniture: [tall], selection: { kind: 'furniture', id: tall.id } })
+  render(<PropertiesPanel />)
+  expect(container.textContent).toContain('Две дверцы по высоте')
+  expect(container.textContent).not.toContain('Три ящика')
+  const button = (label: string) =>
+    [...container.querySelectorAll('button')].find((candidate) => candidate.textContent?.trim() === label)!
+  act(() => button('Одна высокая дверца').click())
+  expect(useAppStore.getState().furniture[0]?.cabinetModule?.facade).toBe('full-door')
+
+  const wall = makeFurniture('cabinet', {
+    elevation: 1400,
+    params: { ...makeFurniture().params, height: 700, depth: 320 },
+    cabinetModule: { familyId: 'wall-storage', version: 1, facade: 'single-door' },
+  })
+  act(() => useAppStore.setState({ furniture: [wall], selection: { kind: 'furniture', id: wall.id } }))
+  expect(container.textContent).toContain('Подъёмный фасад')
+  expect(container.textContent).not.toContain('Две дверцы по высоте')
+  act(() => button('Подъёмный фасад').click())
+  expect(useAppStore.getState().furniture[0]?.cabinetModule?.facade).toBe('lift-up')
+})
+
 it('routes each selection to the corresponding property form', () => {
   useAppStore.setState({
     room: makeRoom({ openings: [makeOpening('window')], utilities: [makeUtility('water')] }),

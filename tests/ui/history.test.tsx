@@ -79,6 +79,11 @@ it('supports Mac, Windows and Russian-layout shortcuts without intercepting text
 })
 
 it('records each complete pointer gesture on a properties slider as one step', () => {
+  useAppStore.setState({
+    furniture: [
+      makeFurniture('cabinet', { cabinetModule: { familyId: 'base-storage', version: 1, facade: 'double-door' } }),
+    ],
+  })
   useAppStore.getState().select({ kind: 'furniture', id: 'cabinet-1' })
   act(() => root.render(<PropertiesPanel />))
   const slider = container.querySelector<HTMLInputElement>('[aria-label="Ширина: ползунок"]')!

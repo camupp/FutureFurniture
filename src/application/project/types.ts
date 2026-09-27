@@ -1,6 +1,7 @@
 import {
   type BlockParams,
   type BlockType,
+  type CabinetModule,
   type Opening,
   type OpeningType,
   type Point,
@@ -20,7 +21,7 @@ export type SelectionKind = 'wall' | 'furniture' | 'opening' | 'utility'
 export type Selection = { kind: SelectionKind; id: string } | null
 
 /** Данные пресета каталога, которых достаточно, чтобы создать блок. */
-export type NewBlock = { type: BlockType; elevation: number; params: BlockParams }
+export type NewBlock = { type: BlockType; elevation: number; params: BlockParams; cabinetModule?: CabinetModule }
 
 export type AppState = Project & {
   history: ProjectHistory
@@ -82,6 +83,8 @@ export type AppState = Project & {
   elevateFurniture: (id: string, elevation: number) => void
   rotateFurniture: (id: string, rotation: number) => void
   updateFurnitureParams: (id: string, patch: Partial<BlockParams>) => void
+  setCabinetFacade: (id: string, facade: CabinetModule['facade']) => void
+  updateCabinetHardware: (id: string, patch: Pick<CabinetModule, 'handleStyle' | 'handleSide'>) => void
   removeFurniture: (id: string) => void
 }
 

@@ -3,6 +3,7 @@ import { Edges } from '@react-three/drei'
 import type { ThreeEvent } from '@react-three/fiber'
 import type { FurnitureItem } from '@/domain/model'
 import { cabinetFrontLayout, type CabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
+import { cabinetModuleFor } from '@/domain/modules/cabinetFamilies'
 import { degToRad, mmToM } from '@/shared/lib/units'
 import { Cabinet, Countertop, Hob, Sink, type Cutout } from './blocks'
 import { calculateCutouts } from './geometry/cutouts'
@@ -39,7 +40,16 @@ function BlockGeometry({
     case 'hob':
       return <Hob {...item.params} />
     case 'cabinet':
-      return <Cabinet {...item.params} onFloor={item.elevation === 0} cutouts={cutouts} frontLayout={frontLayout} />
+      const module = cabinetModuleFor(item)!
+      return (
+        <Cabinet
+          {...item.params}
+          onFloor={item.elevation === 0 && module.familyId !== 'wall-storage'}
+          cutouts={cutouts}
+          frontLayout={frontLayout}
+          module={module}
+        />
+      )
   }
 }
 
