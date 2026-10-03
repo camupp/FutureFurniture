@@ -13,6 +13,7 @@ export function createUtilitiesSlice({
       const utility: Utility = {
         id: newId(),
         type,
+        ...(type === 'power' ? { socketCount: 2 as const } : {}),
         point: { x: Math.round(point.x), y: Math.round(point.y) },
         mount,
         height: Math.min(mount.kind === 'floor' ? 0 : UTILITY_DEFAULT_HEIGHT[type], get().room.wallHeight),

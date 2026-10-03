@@ -14,10 +14,19 @@ export const CABINET_HANDLE_SIDES = ['left', 'right'] as const
 export type CabinetHandleSide = (typeof CABINET_HANDLE_SIDES)[number]
 
 type Hardware = { handleStyle?: CabinetHandleStyle; handleSide?: CabinetHandleSide }
+export const BASE_CABINET_ROLES = ['storage', 'sink', 'hob', 'oven', 'dishwasher'] as const
+export type BaseCabinetRole = (typeof BASE_CABINET_ROLES)[number]
+export const TALL_CABINET_ROLES = ['storage', 'oven', 'fridge'] as const
+export type TallCabinetRole = (typeof TALL_CABINET_ROLES)[number]
 export type CabinetModuleConfig =
-  | ({ familyId: 'base-storage'; version: 1; facade: 'single-door' | 'double-door' | 'three-drawers' } & Hardware)
+  | ({
+      familyId: 'base-storage'
+      version: 1
+      facade: 'single-door' | 'double-door' | 'three-drawers'
+      role?: BaseCabinetRole
+    } & Hardware)
   | ({ familyId: 'wall-storage'; version: 1; facade: 'single-door' | 'double-door' | 'lift-up' } & Hardware)
-  | ({ familyId: 'tall-storage'; version: 1; facade: 'stacked-doors' | 'full-door' } & Hardware)
+  | ({ familyId: 'tall-storage'; version: 1; facade: 'stacked-doors' | 'full-door'; role?: TallCabinetRole } & Hardware)
 
 type Dimension = { min: number; max: number; step: number; preferred: readonly number[] }
 export type CabinetFacadeDefinition = { id: CabinetFacadeId; label: string; minWidth: number; maxWidth: number }
@@ -35,7 +44,7 @@ export const CABINET_FAMILIES = {
   'base-storage': {
     id: 'base-storage',
     version: 1,
-    purpose: 'Напольное хранение',
+    purpose: 'Нижняя база',
     dimensions: {
       width: { min: 300, max: 1200, step: 10, preferred: [400, 450, 600, 800, 900] },
       height: { min: 700, max: 1000, step: 10, preferred: [820] },
@@ -51,7 +60,7 @@ export const CABINET_FAMILIES = {
   'wall-storage': {
     id: 'wall-storage',
     version: 1,
-    purpose: 'Навесное хранение',
+    purpose: 'Верхняя база',
     dimensions: {
       width: { min: 300, max: 1200, step: 10, preferred: [400, 600, 800] },
       height: { min: 400, max: 1000, step: 10, preferred: [700, 800] },

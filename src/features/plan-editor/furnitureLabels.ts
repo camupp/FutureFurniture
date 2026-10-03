@@ -7,6 +7,7 @@ const TYPE_PRIORITY: Record<BlockType, number> = {
   countertop: 2,
   sink: 1,
   hob: 1,
+  fridge: 3,
 }
 
 function labelPriority(

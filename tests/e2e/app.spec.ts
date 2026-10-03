@@ -28,6 +28,35 @@ async function planSurface(page: Page) {
   return surface
 }
 
+test('previews and accepts a generated straight kitchen as one saved undo step', async ({ page }) => {
+  await openProject(page)
+  const undo = page.getByRole('button', { name: 'Отменить', exact: true })
+  const redo = page.getByRole('button', { name: 'Повторить', exact: true })
+  await expect(undo).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Собрать кухню' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Собрать прямую кухню' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel('Стена для ряда').selectOption({ index: 2 })
+  await dialog.getByLabel('Рабочая поверхность между зонами').selectOption('1200')
+  await expect(dialog.getByText('Рабочая база с ящиками · 600 мм')).toHaveCount(2)
+  await expect(page.locator('main')).toHaveCount(1)
+  await expect(page.getByTestId('room-editor')).toHaveCount(1)
+  await expect(undo).toBeDisabled()
+
+  await dialog.getByRole('button', { name: 'Принять вариант' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(undo).toBeEnabled()
+  await undo.click()
+  const blockCount = page.getByText('Блоков', { exact: true }).locator('xpath=following-sibling::dd[1]')
+  await expect(blockCount).toHaveText('0')
+  await redo.click()
+  await expect(blockCount).not.toHaveText('0')
+  await expect(page.getByRole('status')).toHaveText('Сохранено')
+  await page.reload()
+  await expect(blockCount).not.toHaveText('0')
+})
+
 test('groups slider edits, supports undo and redo, and saves the undone result after reload', async ({ page }) => {
   await openProject(page, {
     room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
@@ -37,7 +66,8 @@ test('groups slider edits, supports undo and redo, and saves the undone result a
   const undo = page.getByRole('button', { name: 'Отменить', exact: true })
   const redo = page.getByRole('button', { name: 'Повторить', exact: true })
   await expect(undo).toBeDisabled()
-  await page.getByRole('button', { name: /Шкаф напольный/ }).click()
+  await page.getByRole('button', { name: /Нижняя база/ }).click()
+  await page.getByRole('button', { name: 'Две дверцы', exact: true }).click()
   const width = page.getByRole('spinbutton', { name: /^Ширина/ })
   const slider = page.getByRole('slider', { name: 'Ширина: ползунок' })
   await expect(width).toHaveValue('600')
@@ -116,6 +146,48 @@ test('opens the floor menu and persists a floor sewer outlet', async ({ page }) 
   await expect(outputCount).toHaveText('1')
 })
 
+test('selects furniture with a marquee and groups it from the context menu', async ({ page }) => {
+  await openProject(page, {
+    room: { walls: roomWalls, wallHeight: 2700, openings: [], utilities: [] },
+    furniture: [
+      {
+        id: 'first',
+        type: 'cabinet',
+        position: { x: 1500, y: 1500 },
+        elevation: 0,
+        rotation: 0,
+        params: cabinetParams,
+      },
+      {
+        id: 'second',
+        type: 'cabinet',
+        position: { x: 2100, y: 1500 },
+        elevation: 0,
+        rotation: 0,
+        params: cabinetParams,
+      },
+    ],
+    viewMode: '2d',
+  })
+  const surface = await planSurface(page)
+  const box = (await surface.boundingBox())!
+  await page.mouse.move(box.x + 20, box.y + 80)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20, { steps: 8 })
+  await page.mouse.up()
+  await expect(page.getByText(/Выбрано объектов: 2/)).toBeVisible()
+
+  await surface.click({ button: 'right', position: { x: box.width / 2 - 50, y: box.height / 2 } })
+  await page.getByRole('button', { name: 'Группировать', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('Сохранено')
+  await page.reload()
+
+  const reloadedSurface = await planSurface(page)
+  const nextBox = (await reloadedSurface.boundingBox())!
+  await reloadedSurface.click({ button: 'right', position: { x: nextBox.width / 2 - 50, y: nextBox.height / 2 } })
+  await expect(page.getByRole('button', { name: 'Разгруппировать', exact: true })).toBeEnabled()
+})
+
 test('opens the wall menu and creates an opening', async ({ page }) => {
   await openProject(page, {
     room: {
@@ -190,7 +262,7 @@ test('keeps utility requirements on the lower sink host only', async ({ page }) 
       y: box!.height / 2 - 1000 * scale,
     },
   })
-  await expect(page.locator('aside')).toContainText('Подключения совместимы: Вода, Канализация')
+  await expect(page.locator('aside')).toContainText('Подходящие выводы рядом (монтаж не проверен): Вода, Канализация')
 
   await page.getByRole('button', { name: 'Фасад стены', exact: true }).click()
   const elevation = page.getByTestId('elevation-editor').locator('.konvajs-content')
@@ -204,9 +276,9 @@ test('keeps utility requirements on the lower sink host only', async ({ page }) 
       y: elevationBox!.height / 2 - 200 * elevationScale,
     },
   })
-  await expect(page.locator('aside')).toContainText('Шкаф')
+  await expect(page.locator('aside')).toContainText('Верхняя база')
   await expect(page.locator('aside')).not.toContainText('Для мойки')
-  await expect(page.locator('aside')).not.toContainText('Подключения совместимы')
+  await expect(page.locator('aside')).not.toContainText('Подходящие выводы рядом')
 })
 
 test('exposes and toggles smart placement', async ({ page }) => {
@@ -265,6 +337,7 @@ test('creates a row countertop, follows resizing, persists and switches to manua
 
   // Опоры остаются доступны на плане даже под автоматической столешницей.
   await selectBase(1800)
+  await page.getByRole('button', { name: 'Две дверцы', exact: true }).click()
   await page.getByRole('spinbutton', { name: /^Ширина/ }).fill('800')
   await page.getByRole('spinbutton', { name: /^Ширина/ }).press('Enter')
   await page.getByRole('button', { name: 'Выбрать столешницу', exact: true }).click()

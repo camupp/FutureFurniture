@@ -21,6 +21,10 @@ import {
   cabinetModuleFor,
   cabinetModuleForNewBlock,
 } from '@/domain/modules/cabinetFamilies'
+import { applianceModuleWidths } from '@/domain/appliances/profiles'
+import { expandFurnitureGroups, translateFurniture, withHostedBuiltIns } from '@/domain/assemblies/furnitureGroups'
+import { syncAutoCountertops } from '@/domain/assemblies/countertops'
+import { itemPlacementIssues } from '@/domain/validation/rules'
 import type { AppState, SliceContext } from '../types'
 
 function clampModuleParams(params: BlockParams, cabinetModule?: CabinetModule): BlockParams {
@@ -29,9 +33,15 @@ function clampModuleParams(params: BlockParams, cabinetModule?: CabinetModule): 
   const facade = cabinetFacadeSpec(cabinetModule.familyId, cabinetModule.facade)!
   const fit = (value: number, min: number, max: number, step: number) =>
     clamp(min + Math.round((clamp(value, min, max) - min) / step) * step, min, max)
+  const applianceWidths = applianceModuleWidths(cabinetModule)
   return {
     ...params,
-    width: fit(params.width, facade.minWidth, facade.maxWidth, dimensions.width.step),
+    width: applianceWidths
+      ? applianceWidths.reduce(
+          (closest, width) => (Math.abs(width - params.width) < Math.abs(closest - params.width) ? width : closest),
+          applianceWidths[0]!,
+        )
+      : fit(params.width, facade.minWidth, facade.maxWidth, dimensions.width.step),
     height: fit(params.height, dimensions.height.min, dimensions.height.max, dimensions.height.step),
     depth: fit(params.depth, dimensions.depth.min, dimensions.depth.max, dimensions.depth.step),
   }
@@ -57,9 +67,70 @@ export function createFurnitureSlice({
   | 'updateFurnitureParams'
   | 'setCabinetFacade'
   | 'updateCabinetHardware'
+  | 'setHobConnection'
   | 'removeFurniture'
+  | 'groupSelectedFurniture'
+  | 'ungroupSelectedFurniture'
+  | 'moveSelectedFurniture'
 > {
   return {
+    groupSelectedFurniture: () => {
+      const state = get()
+      const ids = withHostedBuiltIns(
+        state.furniture,
+        expandFurnitureGroups(state.furniture, state.selectedFurnitureIds),
+      )
+      if (ids.length < 2) return false
+      const selected = new Set(ids)
+      const groupId = newId()
+      set({
+        furniture: state.furniture.map((item) => (selected.has(item.id) ? { ...item, groupId } : item)),
+        selectedFurnitureIds: ids,
+      })
+      return true
+    },
+
+    ungroupSelectedFurniture: () =>
+      set((state) => {
+        const selected = new Set(state.selectedFurnitureIds)
+        const groupIds = new Set(
+          state.furniture.filter((item) => selected.has(item.id) && item.groupId).map((item) => item.groupId),
+        )
+        if (!groupIds.size) return state
+        return {
+          furniture: state.furniture.map((item) =>
+            item.groupId && groupIds.has(item.groupId) ? { ...item, groupId: undefined } : item,
+          ),
+        }
+      }),
+
+    moveSelectedFurniture: (leaderId, position) => {
+      const state = get()
+      const leader = state.furniture.find((item) => item.id === leaderId)
+      if (!leader || leader.autoCountertop || !state.selectedFurnitureIds.includes(leaderId)) return false
+      const ids = withHostedBuiltIns(
+        state.furniture,
+        expandFurnitureGroups(state.furniture, state.selectedFurnitureIds),
+      )
+      if (ids.length < 2) return false
+      const delta = { x: position.x - leader.position.x, y: position.y - leader.position.y }
+      if (Math.hypot(delta.x, delta.y) < 0.01) return true
+      const moved = translateFurniture(state.furniture, ids, delta, state.room)
+      const candidate = syncAutoCountertops(moved, state.room, newId)
+      const affected = new Set(ids)
+      for (const item of candidate) {
+        if (item.autoCountertop?.supportIds.some((id) => affected.has(id))) affected.add(item.id)
+      }
+      const blocked = candidate.some(
+        (item) =>
+          affected.has(item.id) &&
+          itemPlacementIssues(item, candidate, state.room).some((issue) => issue.code !== 'appliance'),
+      )
+      if (blocked) return false
+      set({ furniture: candidate })
+      return true
+    },
+
     setFurnitureClearance: (id, reference, distance) => {
       const state = get()
       const item = state.furniture.find((candidate) => candidate.id === id)
@@ -82,6 +153,7 @@ export function createFurnitureSlice({
         rotation: 0,
         params: clampModuleParams(clampParams(block.type, block.params), cabinetModule ?? undefined),
         cabinetModule: cabinetModule ?? undefined,
+        hobConnection: block.type === 'hob' ? (block.hobConnection ?? 'unknown') : undefined,
       }
       set({ furniture: [...state.furniture, item], selection: { kind: 'furniture', id: item.id }, tool: 'select' })
     },
@@ -293,6 +365,14 @@ export function createFurnitureSlice({
           if (item.id !== id) return item
           const module = cabinetModuleFor(item)
           if (!module || !cabinetFacadeAcceptsWidth(module.familyId, facade, item.params.width)) return item
+          if (applianceModuleWidths(module)) return item
+          if (
+            module.familyId === 'base-storage' &&
+            module.role !== 'storage' &&
+            module.role &&
+            facade === 'three-drawers'
+          )
+            return item
           const updated = cabinetModuleSchema.safeParse({ ...module, facade })
           return updated.success ? { ...item, cabinetModule: updated.data } : item
         }),
@@ -311,6 +391,13 @@ export function createFurnitureSlice({
             return item
           return { ...item, cabinetModule: { ...module, ...patch } }
         }),
+      })),
+
+    setHobConnection: (id, connection) =>
+      set((state) => ({
+        furniture: state.furniture.map((item) =>
+          item.id === id && item.type === 'hob' ? { ...item, hobConnection: connection } : item,
+        ),
       })),
 
     removeFurniture: (id) =>

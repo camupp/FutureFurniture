@@ -104,4 +104,37 @@ describe('versioned cabinet families', () => {
     state().redo()
     expect(state().furniture[0]?.cabinetModule?.handleSide).toBe('left')
   })
+
+  it('keeps appliance presets, their allowed widths and hob connection in a project', () => {
+    state().addBlock(BLOCK_PRESETS.find((preset) => preset.id === 'dishwasher')!)
+    const dishwasherId = state().furniture[0]!.id
+    state().updateFurnitureParams(dishwasherId, { width: 500 })
+    expect(state().furniture[0]?.params.width).toBe(450)
+    state().setCabinetFacade(dishwasherId, 'double-door')
+    expect(state().furniture[0]?.cabinetModule?.facade).toBe('single-door')
+
+    state().addBlock(BLOCK_PRESETS.find((preset) => preset.id === 'hob')!)
+    const hobId = state().furniture[1]!.id
+    state().setHobConnection(hobId, 'induction')
+    const saved = JSON.parse(JSON.stringify(partializeProject(state())))
+    const restored = normalizeProjectDocument(saved, state(), () => crypto.randomUUID())
+    expect(restored?.furniture[0]?.cabinetModule).toMatchObject({ role: 'dishwasher' })
+    expect(restored?.furniture[1]?.hobConnection).toBe('induction')
+    state().undo()
+    expect(state().furniture[1]?.hobConnection).toBe('unknown')
+  })
+
+  it('keeps a fixed oven niche and both refrigerator installation variants', () => {
+    state().addBlock(BLOCK_PRESETS.find((preset) => preset.id === 'tall-oven')!)
+    const ovenId = state().furniture[0]!.id
+    state().updateFurnitureParams(ovenId, { width: 800 })
+    expect(state().furniture[0]?.params.width).toBe(600)
+    state().addBlock(BLOCK_PRESETS.find((preset) => preset.id === 'freestanding-fridge')!)
+    state().addBlock(BLOCK_PRESETS.find((preset) => preset.id === 'built-in-fridge')!)
+    const saved = JSON.parse(JSON.stringify(partializeProject(state())))
+    const restored = normalizeProjectDocument(saved, state(), () => crypto.randomUUID())
+    expect(restored?.furniture.map((item) => item.type)).toEqual(['cabinet', 'fridge', 'cabinet'])
+    expect(restored?.furniture[0]?.cabinetModule).toMatchObject({ role: 'oven' })
+    expect(restored?.furniture[2]?.cabinetModule).toMatchObject({ role: 'fridge' })
+  })
 })

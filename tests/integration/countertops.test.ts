@@ -3,6 +3,7 @@ import { useAppStore } from '@/application/project'
 import type { FurnitureItem, Room } from '@/domain/model'
 import { cabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
 import { furnitureFromWallAnchor } from '@/domain/placement/wallAnchors'
+import { itemPlacementIssues } from '@/domain/validation/rules'
 import { normalizeProjectDocument, partializeProject } from '@/application/project/persistence'
 import { makeFurniture, makeRoom } from '../fixtures'
 
@@ -186,6 +187,45 @@ describe('automatic countertop actions', () => {
 
     expect(item('base')).toMatchObject({ position: { x: 1100, y: 330 }, elevation: 0 })
     expect(item(countertopId)).toMatchObject({ position: { x: 1100, y: 350 }, elevation: 820 })
+  })
+
+  it('snaps a hob onto an oven base and keeps both built-in and countertop with that base', () => {
+    const oven = {
+      ...base('oven', 1200),
+      cabinetModule: {
+        familyId: 'base-storage' as const,
+        version: 1 as const,
+        facade: 'single-door' as const,
+        role: 'oven' as const,
+      },
+    }
+    useAppStore.setState({ furniture: [oven] })
+    useAppStore.getState().addCountertopForRow('oven')
+    const countertopId = countertops()[0]!.id
+    useAppStore.setState({
+      furniture: [
+        ...useAppStore.getState().furniture,
+        makeFurniture('hob', { id: 'hob', position: { x: 2000, y: 1000 } }),
+      ],
+    })
+
+    useAppStore.getState().dropFurniture('hob', { x: 1320, y: 280 })
+
+    expect(item('hob')).toMatchObject({ position: oven.position, rotation: oven.rotation })
+    expect(item('hob').wallAnchor).toBeUndefined()
+    expect(item('hob').elevation).toBe(820)
+    expect(itemPlacementIssues(item('hob'), useAppStore.getState().furniture, useAppStore.getState().room)).toEqual([])
+
+    useAppStore.getState().dropFurniture('oven', { x: 1600, y: 200 })
+
+    expect(item('hob').position).toEqual(item('oven').position)
+    expect(item(countertopId).position).toEqual({ x: 1600, y: 350 })
+
+    useAppStore.getState().moveFurnitureAlongWall('oven', 1800)
+
+    expect(item('oven').position).toEqual({ x: 1800, y: 330 })
+    expect(item('hob').position).toEqual(item('oven').position)
+    expect(item(countertopId).position).toEqual({ x: 1800, y: 350 })
   })
 
   it('splits at a removed middle cabinet and removes the top when its last support disappears', () => {

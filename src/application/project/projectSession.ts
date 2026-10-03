@@ -96,6 +96,7 @@ export class ProjectSession {
       this.store.setState({
         ...createInitialData(() => crypto.randomUUID()),
         ...normalized,
+        activeProjectId: record.id,
         history: this.histories.get(record.id) ?? emptyHistory(),
         historyRevision: this.store.getState().historyRevision + 1,
       })

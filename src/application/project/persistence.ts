@@ -61,7 +61,13 @@ export function mergePersistedProject(persisted: unknown, current: AppState, new
     parsed.data.furniture.map((item) => {
       const cabinetModule = cabinetModuleFor(item)
       const normalized = cabinetModule ? { ...item, cabinetModule } : item
-      const wallAnchor = normalized.wallAnchor ?? inferWallAnchor(normalized, room, roomCenter)
+      // Built-ins belong to their host/top, not the wall. Inferring a wall anchor
+      // from a matching angle shifts a sink or hob by its own (smaller) depth on reload.
+      const wallAnchor =
+        normalized.wallAnchor ??
+        (normalized.type === 'sink' || normalized.type === 'hob'
+          ? undefined
+          : inferWallAnchor(normalized, room, roomCenter))
       return wallAnchor ? { ...normalized, wallAnchor } : normalized
     }),
     room.walls,

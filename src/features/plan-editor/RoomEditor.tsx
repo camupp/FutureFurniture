@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Circle, Label, Layer, Line, Stage, Tag, Text } from 'react-konva'
+import { Circle, Group, Label, Layer, Line, Rect, Stage, Tag, Text } from 'react-konva'
 import type Konva from 'konva'
 import { useAppStore } from '@/application/project'
 import type { FurnitureItem, Point } from '@/domain/model'
 import { roomPolygon } from '@/domain/geometry/geometry'
+import { furnitureInMarquee, translateFurniture, withHostedBuiltIns } from '@/domain/assemblies/furnitureGroups'
+import { syncAutoCountertops } from '@/domain/assemblies/countertops'
 import { bounds, distance, snapPoint } from '@/shared/lib/geometry2d'
 import { cabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
 import { clampOffset } from '@/domain/room/openings'
@@ -11,7 +13,7 @@ import { placeBlock, type Placement } from '@/domain/placement/snapping'
 import { furnitureClearances } from '@/domain/placement/clearances'
 import { alignmentGuides } from '@/domain/placement/guides'
 import { useElementSize } from '@/shared/hooks/useElementSize'
-import { useStageViewport } from '@/shared/canvas/useStageViewport'
+import { stagePointer, useStageViewport } from '@/shared/canvas/useStageViewport'
 import { utilityPoint, wallUtilityMount } from '@/domain/room/utilities'
 import {
   connectedUtilityIds,
@@ -22,6 +24,7 @@ import {
   warningItemIds,
 } from '@/domain/validation/rules'
 import { FurniturePlanLabel, FurnitureShape } from './components/FurnitureShape'
+import { GroupContextMenu } from './components/GroupContextMenu'
 import { visibleFurnitureLabelIds } from './furnitureLabels'
 import { AddContextMenu } from './components/AddContextMenu'
 import { OpeningShape } from './components/OpeningShape'
@@ -35,7 +38,7 @@ import { PlacementOverlay } from './components/PlacementOverlay'
 
 const GRID_STEP = 10
 
-export function RoomEditor() {
+export function RoomEditor({ previewFurniture = [] }: { previewFurniture?: FurnitureItem[] }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { width, height } = useElementSize(containerRef)
   const fittedRef = useRef(false)
@@ -45,7 +48,13 @@ export function RoomEditor() {
   const smartPlacement = useAppStore((s) => s.smartPlacement)
   const tool = useAppStore((s) => s.tool)
   const selection = useAppStore((s) => s.selection)
+  const selectedFurnitureIds = useAppStore((s) => s.selectedFurnitureIds)
   const select = useAppStore((s) => s.select)
+  const selectFurniture = useAppStore((s) => s.selectFurniture)
+  const selectFurnitureInMarquee = useAppStore((s) => s.selectFurnitureInMarquee)
+  const moveSelectedFurniture = useAppStore((s) => s.moveSelectedFurniture)
+  const groupSelectedFurniture = useAppStore((s) => s.groupSelectedFurniture)
+  const ungroupSelectedFurniture = useAppStore((s) => s.ungroupSelectedFurniture)
   const dropFurniture = useAppStore((s) => s.dropFurniture)
   const addOpening = useAppStore((s) => s.addOpening)
   const moveOpening = useAppStore((s) => s.moveOpening)
@@ -57,8 +66,26 @@ export function RoomEditor() {
     height,
   )
   const [dragPreview, setDragPreview] = useState<{ id: string; placement: Placement } | null>(null)
+  const [multiDrag, setMultiDrag] = useState<{ leaderId: string; delta: Point } | null>(null)
+  const [marquee, setMarquee] = useState<{ start: Point; end: Point; additive: boolean } | null>(null)
+  const marqueeRef = useRef<typeof marquee>(null)
+  const [groupMenu, setGroupMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const historyRevision = useAppStore((s) => s.historyRevision)
-  useEffect(() => setDragPreview(null), [historyRevision, tool])
+  useEffect(() => {
+    setDragPreview(null)
+    setMultiDrag(null)
+    setMarquee(null)
+    marqueeRef.current = null
+    setGroupMenu(null)
+  }, [historyRevision, tool])
+  useEffect(() => {
+    if (!groupMenu) return
+    const dismiss = (event: PointerEvent) => {
+      if (!(event.target as Element | null)?.closest('[data-group-menu]')) setGroupMenu(null)
+    }
+    window.addEventListener('pointerdown', dismiss)
+    return () => window.removeEventListener('pointerdown', dismiss)
+  }, [groupMenu])
   const movingSource = dragPreview ? furniture.find((item) => item.id === dragPreview.id) : undefined
   const measuredItem =
     movingSource && dragPreview
@@ -80,6 +107,23 @@ export function RoomEditor() {
   const invalidOpenings = useMemo(() => invalidOpeningIds(room), [room])
   const invalidUtilities = useMemo(() => invalidUtilityIds(room), [room])
   const connectedUtilities = useMemo(() => connectedUtilityIds(furniture, room), [furniture, room])
+  const multiDragIds = useMemo(
+    () => (multiDrag ? withHostedBuiltIns(furniture, selectedFurnitureIds) : []),
+    [furniture, multiDrag, selectedFurnitureIds],
+  )
+  const displayedFurniture = useMemo(() => {
+    if (!multiDrag) return furniture
+    let previewId = 0
+    return syncAutoCountertops(
+      translateFurniture(furniture, multiDragIds, multiDrag.delta, room),
+      room,
+      () => `preview-group-${previewId++}`,
+    )
+  }, [furniture, multiDrag, multiDragIds, room])
+  const multiPreviewInvalid = useMemo(
+    () => (multiDrag ? invalidItemIds(displayedFurniture, room) : new Set<string>()),
+    [displayedFurniture, multiDrag, room],
+  )
   const cabinetFrontLayouts = useMemo(
     () =>
       new Map(
@@ -98,8 +142,11 @@ export function RoomEditor() {
   // Тумбы остаются доступны для выбора; связанную столешницу можно выбрать за свес
   // или кнопкой в свойствах тумбы.
   const furnitureInDrawOrder = useMemo(
-    () => [...furniture.filter((item) => item.autoCountertop), ...furniture.filter((item) => !item.autoCountertop)],
-    [furniture],
+    () => [
+      ...displayedFurniture.filter((item) => item.autoCountertop),
+      ...displayedFurniture.filter((item) => !item.autoCountertop),
+    ],
+    [displayedFurniture],
   )
 
   const fitPoints = useMemo(
@@ -143,11 +190,47 @@ export function RoomEditor() {
     setDraft,
     cursor,
     handlePointerDown: handleToolPointerDown,
-    handlePointerMove,
+    handlePointerMove: handleToolPointerMove,
   } = usePlanTools(view.scale)
   const handlePointerDown = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
     setAddMenu(null)
+    setGroupMenu(null)
+    const stage = event.target.getStage()
+    if (tool === 'select' && stage && event.target === stage && 'button' in event.evt && event.evt.button === 0) {
+      const start = stagePointer(stage)
+      if (start) {
+        const next = { start, end: start, additive: event.evt.shiftKey }
+        marqueeRef.current = next
+        setMarquee(next)
+        return
+      }
+    }
     handleToolPointerDown(event)
+  }
+  const handlePointerMove = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    const current = marqueeRef.current
+    if (current) {
+      const end = stagePointer(event.target.getStage())
+      if (end) {
+        const next = { ...current, end }
+        marqueeRef.current = next
+        setMarquee(next)
+      }
+      return
+    }
+    handleToolPointerMove(event)
+  }
+  const finishMarquee = (stage: Konva.Stage | null) => {
+    const current = marqueeRef.current
+    if (!current) return
+    const end = stagePointer(stage) ?? current.end
+    if (distance(current.start, end) * view.scale >= 5) {
+      selectFurnitureInMarquee(furnitureInMarquee(furniture, current.start, end), current.additive)
+    } else if (!current.additive) {
+      select(null)
+    }
+    marqueeRef.current = null
+    setMarquee(null)
   }
   const { addMenu, setAddMenu, handleContextMenu, handleTouchStart, handleRoomTouchMove, handleRoomTouchEnd } =
     useAddMenu({
@@ -161,6 +244,10 @@ export function RoomEditor() {
   const clearDraft = useCallback(() => {
     setDraft(null)
     setAddMenu(null)
+    setGroupMenu(null)
+    setMarquee(null)
+    marqueeRef.current = null
+    setMultiDrag(null)
   }, [setDraft, setAddMenu])
   usePlanKeyboard(clearDraft)
   const draftLength = draft && cursor ? Math.round(distance(draft, cursor)) : 0
@@ -183,6 +270,8 @@ export function RoomEditor() {
           onContextMenu={handleContextMenu}
           onTouchStart={handleTouchStart}
           onMouseMove={handlePointerMove}
+          onMouseUp={(event) => finishMarquee(event.target.getStage())}
+          onMouseLeave={(event) => finishMarquee(event.target.getStage())}
           onTouchMove={handleRoomTouchMove}
           onTouchEnd={handleRoomTouchEnd}
           onDblClick={() => setDraft(null)}
@@ -241,27 +330,107 @@ export function RoomEditor() {
               )
             })}
 
-            {furnitureInDrawOrder.map((item) => (
-              <FurnitureShape
-                key={item.id}
-                item={item}
-                selected={
-                  selection?.kind === 'furniture' &&
-                  (selection.id === item.id ||
-                    Boolean(selectedCountertopGroup && item.autoCountertop?.groupId === selectedCountertopGroup))
-                }
-                invalid={dragPreview?.id === item.id ? previewIssues.length > 0 : invalid.has(item.id)}
-                warning={warnings.has(item.id)}
-                showLabel={!item.autoCountertop && visibleFurnitureLabels.has(item.id)}
-                draggable={tool === 'select' && !item.autoCountertop}
-                scale={view.scale}
-                frontLayout={cabinetFrontLayouts.get(item.id)}
-                onSelect={() => tool === 'select' && select({ kind: 'furniture', id: item.id })}
-                onMove={(position) => !item.autoCountertop && dropFurniture(item.id, position)}
-                onPreview={(placement) => setDragPreview(placement ? { id: item.id, placement } : null)}
-                resolve={(position) => resolvePlacement(item, position)}
-              />
-            ))}
+            {furnitureInDrawOrder.map((item) => {
+              const source = furniture.find((candidate) => candidate.id === item.id) ?? item
+              const movingTogether =
+                selectedFurnitureIds.length > 1 && selectedFurnitureIds.includes(item.id) && !item.autoCountertop
+              return (
+                <FurnitureShape
+                  key={item.id}
+                  item={item}
+                  selected={
+                    selection?.kind === 'furniture' &&
+                    (selection.id === item.id ||
+                      selectedFurnitureIds.includes(item.id) ||
+                      Boolean(selectedCountertopGroup && item.autoCountertop?.groupId === selectedCountertopGroup))
+                  }
+                  invalid={
+                    multiDrag
+                      ? multiPreviewInvalid.has(item.id)
+                      : dragPreview?.id === item.id
+                        ? previewIssues.length > 0
+                        : invalid.has(item.id)
+                  }
+                  warning={warnings.has(item.id)}
+                  showLabel={!item.autoCountertop && visibleFurnitureLabels.has(item.id)}
+                  draggable={tool === 'select' && !item.autoCountertop}
+                  scale={view.scale}
+                  frontLayout={cabinetFrontLayouts.get(item.id)}
+                  onSelect={(event) => {
+                    if (tool !== 'select') return
+                    if (item.autoCountertop) {
+                      select({ kind: 'furniture', id: item.id })
+                      return
+                    }
+                    selectFurniture(item.id, 'shiftKey' in event.evt && event.evt.shiftKey)
+                  }}
+                  onContextMenu={(event) => {
+                    if (tool !== 'select' || item.autoCountertop) return
+                    event.evt.preventDefault()
+                    event.cancelBubble = true
+                    if (!selectedFurnitureIds.includes(item.id)) selectFurniture(item.id)
+                    const container = containerRef.current?.getBoundingClientRect()
+                    if (!container) return
+                    setAddMenu(null)
+                    setGroupMenu({
+                      id: item.id,
+                      x: event.evt.clientX - container.left,
+                      y: event.evt.clientY - container.top,
+                    })
+                  }}
+                  onMove={(position) => {
+                    if (item.autoCountertop) return
+                    if (movingTogether) return moveSelectedFurniture(source.id, position) ? position : source.position
+                    dropFurniture(source.id, position)
+                  }}
+                  onPreview={(placement) => {
+                    if (movingTogether) {
+                      setMultiDrag(
+                        placement
+                          ? {
+                              leaderId: item.id,
+                              delta: {
+                                x: placement.position.x - source.position.x,
+                                y: placement.position.y - source.position.y,
+                              },
+                            }
+                          : null,
+                      )
+                    } else setDragPreview(placement ? { id: item.id, placement } : null)
+                  }}
+                  resolve={(position) =>
+                    movingTogether
+                      ? {
+                          position: snapPoint(position, GRID_STEP),
+                          rotation: source.rotation,
+                          wallAnchor: source.wallAnchor,
+                        }
+                      : resolvePlacement(source, position)
+                  }
+                />
+              )
+            })}
+
+            {previewFurniture.length > 0 && (
+              <Group listening={false} opacity={0.62}>
+                {previewFurniture.map((item) => (
+                  <FurnitureShape
+                    key={item.id}
+                    item={item}
+                    selected={false}
+                    invalid={false}
+                    warning={false}
+                    showLabel={false}
+                    draggable={false}
+                    scale={view.scale}
+                    onSelect={() => undefined}
+                    onMove={() => undefined}
+                    onPreview={() => undefined}
+                    resolve={() => ({ position: item.position, rotation: item.rotation })}
+                  />
+                ))}
+              </Group>
+            )}
 
             {furniture
               .filter((item) => item.autoCountertop && visibleFurnitureLabels.has(item.id))
@@ -312,6 +481,19 @@ export function RoomEditor() {
                 </Label>
               </>
             )}
+            {marquee && (
+              <Rect
+                x={Math.min(marquee.start.x, marquee.end.x)}
+                y={Math.min(marquee.start.y, marquee.end.y)}
+                width={Math.abs(marquee.end.x - marquee.start.x)}
+                height={Math.abs(marquee.end.y - marquee.start.y)}
+                fill="rgba(37, 99, 235, 0.12)"
+                stroke="#2563eb"
+                strokeWidth={1.5}
+                strokeScaleEnabled={false}
+                listening={false}
+              />
+            )}
           </Layer>
           <Layer listening={false}>
             <PlacementOverlay gaps={gaps} guides={guides} furniture={furniture} scale={view.scale} />
@@ -331,7 +513,7 @@ export function RoomEditor() {
                 ? 'Коснитесь плана, чтобы поставить вывод'
                 : tool === 'pan'
                   ? 'Тяните холст для перемещения · щипок — масштаб'
-                  : 'Вид сверху · ПКМ или долгое нажатие — добавить · щипок — масштаб'}
+                  : 'Вид сверху · протяните рамку для выбора · Shift+клик — добавить · ПКМ — действия'}
         </span>
         <div className="pointer-events-auto flex gap-1">
           <ViewButton onClick={() => zoomBy(1.25)} label="+" />
@@ -352,6 +534,30 @@ export function RoomEditor() {
                 ? 'Стык с соседним блоком'
                 : 'Торцы выровнены')}
         </div>
+      )}
+      {selectedFurnitureIds.length > 1 && !groupMenu && (
+        <div className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800 shadow-sm">
+          Выбрано объектов: {selectedFurnitureIds.length} · перетащите любой для совместного перемещения · ПКМ для
+          группировки
+        </div>
+      )}
+      {groupMenu && (
+        <GroupContextMenu
+          x={groupMenu.x}
+          y={groupMenu.y}
+          containerWidth={width}
+          containerHeight={height}
+          canGroup={selectedFurnitureIds.length > 1}
+          canUngroup={Boolean(furniture.find((item) => item.id === groupMenu.id)?.groupId)}
+          onGroup={() => {
+            groupSelectedFurniture()
+            setGroupMenu(null)
+          }}
+          onUngroup={() => {
+            ungroupSelectedFurniture()
+            setGroupMenu(null)
+          }}
+        />
       )}
       {addMenu && (
         <AddContextMenu

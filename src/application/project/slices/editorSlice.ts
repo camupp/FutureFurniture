@@ -1,4 +1,5 @@
 import type { AppState, SliceContext } from '../types'
+import { expandFurnitureGroups } from '@/domain/assemblies/furnitureGroups'
 
 export function createEditorSlice({
   set,
@@ -13,9 +14,16 @@ export function createEditorSlice({
   | 'setEditorView'
   | 'setElevationWall'
   | 'select'
+  | 'selectFurniture'
+  | 'selectFurnitureInMarquee'
 > {
   return {
-    setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : null }),
+    setTool: (tool) =>
+      set({
+        tool,
+        selection: tool === 'select' ? get().selection : null,
+        selectedFurnitureIds: tool === 'select' ? get().selectedFurnitureIds : [],
+      }),
     setUtilityType: (utilityType) => set({ utilityType, tool: 'utility' }),
     setOrthoSnap: (orthoSnap) => set({ orthoSnap }),
     setSmartPlacement: (smartPlacement) => set({ smartPlacement }),
@@ -49,20 +57,54 @@ export function createEditorSlice({
       ),
     select: (selection) =>
       set((state) => {
-        if (selection?.kind === 'wall') return { selection, elevationWallId: selection.id }
+        const selectedFurnitureIds =
+          selection?.kind === 'furniture' ? expandFurnitureGroups(state.furniture, [selection.id]) : []
+        if (selection?.kind === 'wall') return { selection, selectedFurnitureIds, elevationWallId: selection.id }
         if (selection?.kind === 'furniture') {
           const wallId = state.furniture.find((item) => item.id === selection.id)?.wallAnchor?.wallId
-          if (wallId) return { selection, elevationWallId: wallId }
+          if (wallId) return { selection, selectedFurnitureIds, elevationWallId: wallId }
         }
         if (selection?.kind === 'opening') {
           const wallId = state.room.openings.find((opening) => opening.id === selection.id)?.wallId
-          if (wallId) return { selection, elevationWallId: wallId }
+          if (wallId) return { selection, selectedFurnitureIds, elevationWallId: wallId }
         }
         if (selection?.kind === 'utility') {
           const utility = state.room.utilities.find((candidate) => candidate.id === selection.id)
-          if (utility?.mount.kind === 'wall') return { selection, elevationWallId: utility.mount.wallId }
+          if (utility?.mount.kind === 'wall')
+            return { selection, selectedFurnitureIds, elevationWallId: utility.mount.wallId }
         }
-        return { selection }
+        return { selection, selectedFurnitureIds }
+      }),
+    selectFurniture: (id, additive = false) =>
+      set((state) => {
+        const clicked = expandFurnitureGroups(state.furniture, [id])
+        if (!clicked.length) return state
+        let selectedFurnitureIds: string[]
+        if (additive) {
+          const allSelected = clicked.every((candidate) => state.selectedFurnitureIds.includes(candidate))
+          selectedFurnitureIds = allSelected
+            ? state.selectedFurnitureIds.filter((candidate) => !clicked.includes(candidate))
+            : expandFurnitureGroups(state.furniture, [...state.selectedFurnitureIds, ...clicked])
+        } else {
+          selectedFurnitureIds = state.selectedFurnitureIds.includes(id) ? state.selectedFurnitureIds : clicked
+        }
+        return {
+          selectedFurnitureIds,
+          selection: selectedFurnitureIds.length
+            ? { kind: 'furniture' as const, id: selectedFurnitureIds.includes(id) ? id : selectedFurnitureIds[0]! }
+            : null,
+        }
+      }),
+    selectFurnitureInMarquee: (ids, additive = false) =>
+      set((state) => {
+        const selectedFurnitureIds = expandFurnitureGroups(
+          state.furniture,
+          additive ? [...state.selectedFurnitureIds, ...ids] : ids,
+        )
+        return {
+          selectedFurnitureIds,
+          selection: selectedFurnitureIds.length ? { kind: 'furniture' as const, id: selectedFurnitureIds[0]! } : null,
+        }
       }),
   }
 }

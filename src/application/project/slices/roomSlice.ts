@@ -1,4 +1,4 @@
-import { WALL_LIMITS } from '@/domain/model'
+import { POWER_REACH_LIMITS, WALL_LIMITS } from '@/domain/model'
 import { roomPolygon, setWallLength } from '@/domain/geometry/geometry'
 import { normalizeOpening } from '@/domain/room/openings'
 import { clamp } from '@/shared/lib/units'
@@ -13,7 +13,13 @@ export function createRoomSlice({
   newId,
 }: SliceContext): Pick<
   AppState,
-  'addWall' | 'updateWallLength' | 'updateWallThickness' | 'removeWall' | 'setWallHeight' | 'clearRoom'
+  | 'addWall'
+  | 'updateWallLength'
+  | 'updateWallThickness'
+  | 'removeWall'
+  | 'setWallHeight'
+  | 'setPowerReach'
+  | 'clearRoom'
 > {
   return {
     addWall: (start, end) =>
@@ -114,9 +120,23 @@ export function createRoomSlice({
         }
       }),
 
+    setPowerReach: (distance) =>
+      set((state) => ({
+        room: {
+          ...state.room,
+          powerReachMm: Math.round(clamp(distance, POWER_REACH_LIMITS.min, POWER_REACH_LIMITS.max)),
+        },
+      })),
+
     clearRoom: () =>
       set({
-        room: { walls: [], wallHeight: get().room.wallHeight, openings: [], utilities: [] },
+        room: {
+          walls: [],
+          wallHeight: get().room.wallHeight,
+          powerReachMm: get().room.powerReachMm,
+          openings: [],
+          utilities: [],
+        },
         furniture: [],
         selection: null,
         elevationWallId: null,

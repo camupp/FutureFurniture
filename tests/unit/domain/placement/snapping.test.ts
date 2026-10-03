@@ -20,6 +20,38 @@ describe('placeBlock', () => {
     expect(result.wallAnchor).toEqual({ wallId: 'top', side: 'left', offset: 1000, distance: 0 })
   })
 
+  it('snaps a hob to an oven base without anchoring the hob separately to the wall', () => {
+    const oven = makeFurniture('cabinet', {
+      id: 'oven',
+      position: { x: 1200, y: 330 },
+      cabinetModule: { familyId: 'base-storage', version: 1, facade: 'single-door', role: 'oven' },
+    })
+    const hob = makeFurniture('hob', { id: 'hob' })
+    const result = placeBlock(hob, { x: 1320, y: 290 }, makeRoom(), [oven], roomCenter, true)
+    expect(result).toEqual({ position: oven.position, rotation: oven.rotation })
+  })
+
+  it('keeps the same host magnet on a regular base', () => {
+    const base = makeFurniture('cabinet', { id: 'base', position: { x: 1200, y: 330 } })
+    const hob = makeFurniture('hob', { id: 'hob' })
+    expect(placeBlock(hob, { x: 1320, y: 290 }, makeRoom(), [base], roomCenter, true)).toEqual({
+      position: base.position,
+      rotation: base.rotation,
+    })
+  })
+
+  it('keeps the wall magnet when a hob has no compatible host', () => {
+    const dishwasher = makeFurniture('cabinet', {
+      id: 'dishwasher',
+      position: { x: 1200, y: 330 },
+      cabinetModule: { familyId: 'base-storage', version: 1, facade: 'single-door', role: 'dishwasher' },
+    })
+    const hob = makeFurniture('hob', { id: 'hob' })
+    const result = placeBlock(hob, { x: 1320, y: 290 }, makeRoom(), [dishwasher], roomCenter, true)
+    expect(result.position).not.toEqual(dishwasher.position)
+    expect(result.wallAnchor?.wallId).toBe('top')
+  })
+
   it('stops a wide cabinet at the inner face of a corner wall', () => {
     const cabinet = makeFurniture('cabinet', { params: { ...makeFurniture().params, width: 1200 } })
     const result = placeBlock(cabinet, { x: 300, y: 200 }, makeRoom(), [], roomCenter, true)

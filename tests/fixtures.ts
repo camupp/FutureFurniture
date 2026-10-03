@@ -71,6 +71,7 @@ const DEFAULT_PARAMS: Record<BlockType, FurnitureItem['params']> = {
   countertop: { width: 2400, height: 38, depth: 600, facadeColor: '#8b8f97' },
   sink: { width: 600, height: 180, depth: 500, facadeColor: '#aeb4bd' },
   hob: { width: 600, height: 50, depth: 520, facadeColor: '#252931' },
+  fridge: { width: 600, height: 2000, depth: 650, facadeColor: '#e8e4dd' },
 }
 
 export function makeFurniture(type: BlockType = 'cabinet', patch: Partial<FurnitureItem> = {}): FurnitureItem {

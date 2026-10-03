@@ -32,7 +32,9 @@ export function UtilityProperties() {
       )}
       {connected ? (
         <p className="rounded-md bg-emerald-50 px-2.5 py-2 text-xs text-emerald-700">
-          Вывод подходит установленной сборке
+          {utility.type === 'power'
+            ? 'Розетка в пределах эскизной досягаемости техники (нагрузка не проверена)'
+            : 'Вывод подходит установленной сборке'}
         </p>
       ) : utility.type !== 'power' && !outside ? (
         <p className="rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
@@ -60,6 +62,20 @@ export function UtilityProperties() {
           ))}
         </div>
       </div>
+
+      {utility.type === 'power' && (
+        <label className="block text-xs font-medium text-slate-600">
+          Гнёзд в розетке
+          <select
+            value={utility.socketCount ?? 2}
+            onChange={(event) => updateUtility(utility.id, { socketCount: Number(event.target.value) as 1 | 2 })}
+            className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800"
+          >
+            <option value={1}>Одно</option>
+            <option value={2}>Два</option>
+          </select>
+        </label>
+      )}
 
       <div>
         <span className="mb-1.5 block text-xs font-medium text-slate-600">Положение</span>

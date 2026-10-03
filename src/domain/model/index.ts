@@ -13,7 +13,7 @@ export {
   utilitySchema,
 } from './utility'
 export type { UtilityType, UtilityMount, Utility } from './utility'
-export { roomSchema } from './room'
+export { POWER_REACH_DEFAULT, POWER_REACH_LIMITS, roomSchema } from './room'
 export type { Room } from './room'
 export {
   BLOCK_TYPES,
@@ -23,6 +23,8 @@ export {
   BLOCK_LIMITS,
   ELEVATION_LIMITS,
   FACADE_COLORS,
+  HOB_CONNECTIONS,
+  HOB_CONNECTION_LABELS,
   blockParamsSchema,
   WALL_SIDES,
   wallAnchorSchema,
@@ -30,6 +32,15 @@ export {
   cabinetModuleSchema,
   furnitureItemSchema,
 } from './furniture'
-export type { BlockType, Limit, BlockParams, WallSide, WallAnchor, CabinetModule, FurnitureItem } from './furniture'
+export type {
+  BlockType,
+  Limit,
+  BlockParams,
+  WallSide,
+  WallAnchor,
+  CabinetModule,
+  FurnitureItem,
+  HobConnection,
+} from './furniture'
 export { projectSchema } from './project'
 export type { Project } from './project'

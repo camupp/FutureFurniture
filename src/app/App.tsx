@@ -5,6 +5,8 @@ import { LibraryPanel } from '@/features/furniture-library'
 import { PropertiesPanel } from '@/features/properties'
 import { RoomEditor } from '@/features/plan-editor'
 import { Scene3D } from '@/features/scene-3d'
+import { KitchenGeneratorPanel } from '@/features/kitchen-generator'
+import type { FurnitureItem } from '@/domain/model'
 import { EditorHeader } from './components/EditorHeader'
 import { EditorTools } from './components/EditorTools'
 import { ProjectManager } from './components/ProjectManager'
@@ -14,6 +16,8 @@ import { useHistoryKeyboard } from './useHistoryKeyboard'
 export function App() {
   const session = useProjectSession()
   const [projectsOpen, setProjectsOpen] = useState(false)
+  const [generatorOpen, setGeneratorOpen] = useState(false)
+  const [previewFurniture, setPreviewFurniture] = useState<FurnitureItem[]>([])
   useHistoryKeyboard(session.phase === 'ready' && Boolean(session.currentId) && !session.busy && !projectsOpen)
   useEffect(() => {
     void projectSession.initialize().catch(() => undefined)
@@ -32,6 +36,10 @@ export function App() {
   const handleClear = () => {
     if (confirm('Удалить все стены, проёмы, выводы и блоки проекта?')) clearRoom()
   }
+  const closeGenerator = () => {
+    setGeneratorOpen(false)
+    setPreviewFurniture([])
+  }
 
   if (session.phase === 'loading') return <div className="p-6">Загружаем проекты…</div>
   if (session.phase === 'error')
@@ -47,11 +55,14 @@ export function App() {
   const projectName = session.projects.find((project) => project.id === session.currentId)?.name ?? 'Проект'
 
   return (
-    <div className="flex h-full flex-col overflow-x-auto bg-slate-100 text-slate-900">
+    <div className="relative flex h-full flex-col overflow-x-auto bg-slate-100 text-slate-900">
       <EditorHeader
         projectName={projectName}
         saving={session.saving}
-        onOpenProjects={() => setProjectsOpen(true)}
+        onOpenProjects={() => {
+          closeGenerator()
+          setProjectsOpen(true)
+        }}
         historyDisabled={session.busy || projectsOpen}
       />
       {session.error && (
@@ -67,6 +78,14 @@ export function App() {
         <nav className="flex w-52 shrink-0 flex-col gap-5 overflow-y-auto border-r border-slate-200 bg-white p-4">
           <EditorTools />
 
+          <button
+            type="button"
+            onClick={() => setGeneratorOpen(true)}
+            className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-left text-sm font-medium text-blue-800 hover:bg-blue-100"
+          >
+            Собрать кухню
+          </button>
+
           <LibraryPanel />
 
           <button
@@ -79,13 +98,21 @@ export function App() {
         </nav>
 
         <main className="flex min-w-0 flex-1">
-          {viewMode !== '3d' && (editorView === 'plan' ? <RoomEditor /> : <ElevationEditor />)}
+          {viewMode !== '3d' &&
+            (editorView === 'plan' ? <RoomEditor previewFurniture={previewFurniture} /> : <ElevationEditor />)}
           {viewMode === 'split' && <div className="w-px shrink-0 bg-slate-300" />}
-          {viewMode !== '2d' && <Scene3D />}
+          {viewMode !== '2d' && <Scene3D previewFurniture={previewFurniture} />}
         </main>
 
         <PropertiesPanel />
       </div>
+      {generatorOpen && !projectsOpen && (
+        <KitchenGeneratorPanel
+          key={`generator-${session.currentId}`}
+          onPreview={setPreviewFurniture}
+          onClose={closeGenerator}
+        />
+      )}
     </div>
   )
 }

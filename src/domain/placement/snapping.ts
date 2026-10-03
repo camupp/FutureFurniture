@@ -1,5 +1,7 @@
 import type { FurnitureItem, Opening, Point, Room, Wall, WallAnchor, WallSide } from '@/domain/model'
-import { blocksOverlap, footprintsOverlap, projectExtent } from '@/domain/geometry/collision'
+import { blocksOverlap, footprintsOverlap, isBuiltIn, projectExtent } from '@/domain/geometry/collision'
+import { isCountertopSupport } from '@/domain/assemblies/countertops'
+import { cabinetAppliance } from '@/domain/appliances/profiles'
 import { snapElevation } from '@/domain/placement/elevation'
 import { boundaryWalls, itemFootprint, wallLength } from '@/domain/geometry/geometry'
 import { distance, rotatePoint, snap, snapPoint } from '@/shared/lib/geometry2d'
@@ -20,6 +22,8 @@ const WALL_GRAB = 350
 const REHOST_HYSTERESIS = 120
 /** Зазор между соседними блоками, в пределах которого они стыкуются вплотную. */
 const NEIGHBOUR_GRAB = 250
+/** Небольшой допуск за контуром базы при посадке врезной техники. */
+const HOST_GRAB = 80
 /** Допуск по разнице углов, при котором блоки считаются стоящими в одну линию. */
 const ALIGN_TOLERANCE_DEG = 1
 /** Разница высот установки, в пределах которой блоки считаются одним рядом. */
@@ -252,6 +256,27 @@ function snapToNeighbour(item: FurnitureItem, placement: Placement, others: Furn
   return candidates[0]?.placement ?? null
 }
 
+/** Врезная техника центрируется на совместимой нижней базе, а не получает собственную привязку к стене. */
+function snapToHost(item: FurnitureItem, position: Point, others: FurnitureItem[]): Placement | null {
+  if (!isBuiltIn(item)) return null
+  const candidates = others
+    .filter((other) => {
+      if (!isCountertopSupport(other)) return false
+      if (other.params.width < item.params.width || other.params.depth < item.params.depth) return false
+      const appliance = cabinetAppliance(other)
+      if (item.type === 'sink' && appliance) return false
+      if (item.type === 'hob' && appliance === 'dishwasher') return false
+      const local = rotatePoint(position, other.position, -other.rotation)
+      return (
+        Math.abs(local.x - other.position.x) <= other.params.width / 2 + HOST_GRAB &&
+        Math.abs(local.y - other.position.y) <= other.params.depth / 2 + HOST_GRAB
+      )
+    })
+    .sort((a, b) => distance(position, a.position) - distance(position, b.position) || a.id.localeCompare(b.id))
+  const host = candidates[0]
+  return host ? { position: host.position, rotation: host.rotation } : null
+}
+
 /**
  * Выталкивает блок из пересечения вдоль его собственной ширины — так расстановка
  * работает в кухонных планировщиках: блок «съезжает» к ближайшему свободному месту
@@ -295,6 +320,9 @@ export function placeBlock(
   if (!snapEnabled) {
     return { position: snapPoint(position, GRID_STEP), rotation: item.rotation }
   }
+
+  const host = snapToHost(item, position, others)
+  if (host) return host
 
   const wallFit = snapToWall(item, position, room, roomCenter)
   if (wallFit) return finishWallPlacement(item, wallFit, room, others, roomCenter)
@@ -369,6 +397,12 @@ export function placeBlockInSection(
       ...wallPlacement,
       elevation: snap(raised, GRID_STEP),
     }
+  }
+
+  const host = snapToHost(item, wallPlacement.position, others)
+  if (host) {
+    const snapped = snapElevation({ ...item, ...host }, raised, others)
+    return { ...host, elevation: snapped }
   }
 
   const snapped = snapElevation({ ...item, position: wallPlacement.position }, raised, others)

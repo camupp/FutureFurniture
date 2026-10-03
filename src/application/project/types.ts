@@ -2,6 +2,7 @@ import {
   type BlockParams,
   type BlockType,
   type CabinetModule,
+  type HobConnection,
   type Opening,
   type OpeningType,
   type Point,
@@ -12,6 +13,7 @@ import {
 } from '@/domain/model'
 import type { ProjectHistory } from './history'
 import type { ClearanceReference } from '@/domain/placement/clearances'
+import type { StraightKitchenProposal } from '@/domain/generation/straightKitchen'
 
 export type Tool = 'select' | 'wall' | 'window' | 'door' | 'utility' | 'pan'
 export type ViewMode = '2d' | 'split' | '3d'
@@ -21,9 +23,17 @@ export type SelectionKind = 'wall' | 'furniture' | 'opening' | 'utility'
 export type Selection = { kind: SelectionKind; id: string } | null
 
 /** Данные пресета каталога, которых достаточно, чтобы создать блок. */
-export type NewBlock = { type: BlockType; elevation: number; params: BlockParams; cabinetModule?: CabinetModule }
+export type NewBlock = {
+  type: BlockType
+  elevation: number
+  params: BlockParams
+  cabinetModule?: CabinetModule
+  hobConnection?: HobConnection
+}
 
 export type AppState = Project & {
+  /** Runtime identity of the loaded IndexedDB record; never serialized into project data. */
+  activeProjectId: string | null
   history: ProjectHistory
   /** Changes only on undo/redo to cancel obsolete canvas drafts. */
   historyRevision: number
@@ -32,6 +42,8 @@ export type AppState = Project & {
   beginHistoryGroup: () => void
   endHistoryGroup: () => void
   selection: Selection
+  /** Временное мультивыделение на плане; сохраняется только связь группы в мебели. */
+  selectedFurnitureIds: string[]
   tool: Tool
   orthoSnap: boolean
   smartPlacement: boolean
@@ -50,12 +62,15 @@ export type AppState = Project & {
   setEditorView: (view: EditorView) => void
   setElevationWall: (wallId: string) => void
   select: (selection: Selection) => void
+  selectFurniture: (id: string, additive?: boolean) => void
+  selectFurnitureInMarquee: (ids: string[], additive?: boolean) => void
 
   addWall: (start: Point, end: Point) => void
   updateWallLength: (id: string, length: number) => void
   updateWallThickness: (id: string, thickness: number) => void
   removeWall: (id: string) => void
   setWallHeight: (height: number) => void
+  setPowerReach: (distance: number) => void
   clearRoom: () => void
 
   addOpening: (wallId: string, offset: number, type: OpeningType) => void
@@ -85,7 +100,14 @@ export type AppState = Project & {
   updateFurnitureParams: (id: string, patch: Partial<BlockParams>) => void
   setCabinetFacade: (id: string, facade: CabinetModule['facade']) => void
   updateCabinetHardware: (id: string, patch: Pick<CabinetModule, 'handleStyle' | 'handleSide'>) => void
+  setHobConnection: (id: string, connection: HobConnection) => void
   removeFurniture: (id: string) => void
+  groupSelectedFurniture: () => boolean
+  ungroupSelectedFurniture: () => void
+  /** Переносит всё выделение одним шагом истории; false означает недопустимую позицию. */
+  moveSelectedFurniture: (leaderId: string, position: Point) => boolean
+  /** Accepts a still-current generator preview as one undoable document change. */
+  applyStraightKitchen: (proposal: StraightKitchenProposal, expectedProjectId: string | null) => string | null
 }
 
 export type StatePatch = Partial<AppState> | ((state: AppState) => Partial<AppState>)

@@ -160,6 +160,7 @@ export function Cabinet({
 
       {panels.map((panel, index) => {
         const panelWidth = panel.right - panel.left
+        const appliance = panel.kind === 'oven' || panel.kind === 'dishwasher'
         return (
           <group key={`panel-${index}`}>
             <mesh
@@ -168,8 +169,31 @@ export function Cabinet({
               receiveShadow
             >
               <boxGeometry args={[mmToM(panelWidth), mmToM(panel.top - panel.bottom), facadeThickness]} />
-              <meshStandardMaterial color={facadeColor} roughness={0.55} />
+              <meshStandardMaterial
+                color={panel.kind === 'oven' ? '#252c36' : panel.kind === 'dishwasher' ? '#aeb8c2' : facadeColor}
+                metalness={appliance ? 0.35 : 0}
+                roughness={appliance ? 0.35 : 0.55}
+              />
             </mesh>
+            {panel.kind === 'oven' && (
+              <mesh
+                position={[
+                  mmToM((panel.left + panel.right) / 2),
+                  mmToM((panel.bottom + panel.top) / 2 - 25),
+                  d / 2 + mmToM(1),
+                ]}
+                castShadow
+              >
+                <boxGeometry args={[mmToM(panelWidth * 0.76), mmToM((panel.top - panel.bottom) * 0.58), mmToM(2)]} />
+                <meshStandardMaterial color="#101820" metalness={0.25} roughness={0.18} />
+              </mesh>
+            )}
+            {panel.kind === 'dishwasher' && (
+              <mesh position={[mmToM((panel.left + panel.right) / 2), mmToM(panel.top - 65), d / 2 + mmToM(1)]}>
+                <boxGeometry args={[mmToM(panelWidth - 40), mmToM(40), mmToM(2)]} />
+                <meshStandardMaterial color="#525e6b" metalness={0.45} roughness={0.4} />
+              </mesh>
+            )}
             {panel.handleStyle === 'knob' ? (
               <mesh
                 position={[mmToM(panel.handleX), mmToM(panel.handleY), d / 2 + mmToM(10)]}

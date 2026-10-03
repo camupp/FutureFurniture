@@ -88,15 +88,21 @@ export function UtilityGeometry({
       return (
         <group rotation={wallMounted ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}>
           <mesh castShadow>
-            <boxGeometry args={[mmToM(150), mmToM(110), mmToM(28)]} />
+            <boxGeometry args={[mmToM((utility.socketCount ?? 2) === 2 ? 180 : 100), mmToM(110), mmToM(28)]} />
             <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.1} roughness={0.7} />
           </mesh>
-          {[-30, 30].map((offset) => (
-            <mesh key={offset} position={[mmToM(offset), 0, mmToM(17)]} rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[mmToM(9), mmToM(9), mmToM(8), 12]} />
-              <meshStandardMaterial color="#7f1d1d" roughness={0.9} />
-            </mesh>
-          ))}
+          {((utility.socketCount ?? 2) === 2 ? [-45, 45] : [0]).flatMap((center) =>
+            [-12, 12].map((offset) => (
+              <mesh
+                key={`${center}:${offset}`}
+                position={[mmToM(center + offset), 0, mmToM(17)]}
+                rotation={[Math.PI / 2, 0, 0]}
+              >
+                <cylinderGeometry args={[mmToM(7), mmToM(7), mmToM(8), 12]} />
+                <meshStandardMaterial color="#7f1d1d" roughness={0.9} />
+              </mesh>
+            )),
+          )}
         </group>
       )
   }

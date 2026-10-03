@@ -5,6 +5,7 @@ import { canRedo, canUndo, useAppStore } from '@/application/project'
 import { makeFurniture, makeRoom } from '../fixtures'
 import { BLOCK_PRESETS } from '@/features/furniture-library/catalog'
 import { partializeProject } from '@/application/project/persistence'
+import { generateStraightKitchen } from '@/domain/generation/straightKitchen'
 
 class MemoryRepository implements ProjectRepository {
   records = new Map<string, ProjectRecord>()
@@ -94,6 +95,32 @@ describe('project session', () => {
       })
     } finally {
       session.dispose()
+    }
+  })
+
+  it('autosaves an accepted straight kitchen and restores it after a new session starts', async () => {
+    const repository = new MemoryRepository()
+    const legacy = new MemoryLegacyStorage()
+    const first = new ProjectSession(repository, legacy, useAppStore)
+    await first.initialize()
+    const state = useAppStore.getState()
+    const proposal = generateStraightKitchen(state.room, state.furniture, {
+      wallId: state.room.walls[0]!.id,
+      includeSink: true,
+      includeHob: true,
+    }).proposal!
+    expect(state.applyStraightKitchen(proposal, first.getSnapshot().currentId)).toBeNull()
+    const accepted = useAppStore.getState().furniture
+    await first.flush()
+    first.dispose()
+
+    useAppStore.setState({ ...useAppStore.getInitialState(), room: makeRoom(), furniture: [] }, true)
+    const second = new ProjectSession(repository, legacy, useAppStore)
+    await second.initialize()
+    try {
+      expect(useAppStore.getState().furniture).toEqual(accepted)
+    } finally {
+      second.dispose()
     }
   })
 

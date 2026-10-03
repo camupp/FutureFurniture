@@ -1,5 +1,14 @@
 import { selectedFurniture, useAppStore } from '@/application/project'
-import { BLOCK_LABELS, BLOCK_LIMITS, ELEVATION_LIMITS, FACADE_COLORS, UTILITY_LABELS } from '@/domain/model'
+import {
+  BLOCK_LABELS,
+  BLOCK_LIMITS,
+  ELEVATION_LIMITS,
+  FACADE_COLORS,
+  HOB_CONNECTIONS,
+  HOB_CONNECTION_LABELS,
+  UTILITY_LABELS,
+} from '@/domain/model'
+import { applianceModuleWidths, cabinetAppliance, hobConnectionFor } from '@/domain/appliances/profiles'
 import { isCountertopSupport } from '@/domain/assemblies/countertops'
 import { wallAnchorOffsetLimits } from '@/domain/placement/wallAnchors'
 import { assessUtilities, itemPlacementIssues } from '@/domain/validation/rules'
@@ -20,6 +29,7 @@ export function BlockProperties() {
   const updateParams = useAppStore((s) => s.updateFurnitureParams)
   const setCabinetFacade = useAppStore((s) => s.setCabinetFacade)
   const updateCabinetHardware = useAppStore((s) => s.updateCabinetHardware)
+  const setHobConnection = useAppStore((s) => s.setHobConnection)
   const elevateFurniture = useAppStore((s) => s.elevateFurniture)
   const rotateFurniture = useAppStore((s) => s.rotateFurniture)
   const moveFurniture = useAppStore((s) => s.moveFurniture)
@@ -36,14 +46,18 @@ export function BlockProperties() {
   const cabinetModule = cabinetModuleFor(item)
   const family = cabinetModule ? CABINET_FAMILIES[cabinetModule.familyId] : null
   const facadeSpec = cabinetModule ? cabinetFacadeSpec(cabinetModule.familyId, cabinetModule.facade) : null
+  const applianceWidths = cabinetModule ? applianceModuleWidths(cabinetModule) : null
+  const appliance = item.type === 'fridge' ? 'fridge' : cabinetAppliance(item)
 
   const limits =
     family && facadeSpec
       ? {
           width: {
             ...family.dimensions.width,
-            min: facadeSpec.minWidth,
-            max: facadeSpec.maxWidth,
+            min: applianceWidths ? applianceWidths[0]! : facadeSpec.minWidth,
+            max: applianceWidths ? applianceWidths[applianceWidths.length - 1]! : facadeSpec.maxWidth,
+            step:
+              applianceWidths?.length === 2 ? applianceWidths[1]! - applianceWidths[0]! : family.dimensions.width.step,
           },
           height: family.dimensions.height,
           depth: family.dimensions.depth,
@@ -76,7 +90,23 @@ export function BlockProperties() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm font-medium text-slate-800">{family ? family.purpose : BLOCK_LABELS[item.type]}</p>
+      <p className="text-sm font-medium text-slate-800">
+        {cabinetModule?.familyId === 'base-storage' && cabinetModule.role === 'sink'
+          ? 'Нижняя база под мойку'
+          : cabinetModule?.familyId === 'base-storage' && cabinetModule.role === 'hob'
+            ? 'Нижняя база под кухонную плиту'
+            : appliance === 'oven'
+              ? cabinetModule?.familyId === 'tall-storage'
+                ? 'Пенал с духовкой'
+                : 'База с духовкой'
+              : appliance === 'dishwasher'
+                ? 'Посудомойка'
+                : appliance === 'fridge' && cabinetModule?.familyId === 'tall-storage'
+                  ? 'Встроенный холодильник'
+                  : family
+                    ? family.purpose
+                    : BLOCK_LABELS[item.type]}
+      </p>
       {item.wallAnchor && anchorWall && (
         <div className="-mt-2 flex items-center justify-between gap-2 rounded-md bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
           <span>Прикреплён к стене {anchorWallIndex + 1}</span>
@@ -133,12 +163,29 @@ export function BlockProperties() {
       ))}
       {utilityAssessment.connected.length > 0 && (
         <p className="rounded-md bg-emerald-50 px-2.5 py-2 text-xs text-emerald-700">
-          Подключения совместимы:{' '}
+          Подходящие выводы рядом (монтаж не проверен):{' '}
           {[...new Set(utilityAssessment.connected.map((utility) => UTILITY_LABELS[utility.type]))].join(', ')}
         </p>
       )}
 
       <ClearanceControls item={item} room={room} furniture={furniture} />
+      {item.type === 'hob' && (
+        <label className="block text-xs font-medium text-slate-600">
+          Тип кухонной плиты
+          <select
+            aria-label="Тип кухонной плиты"
+            value={hobConnectionFor(item)}
+            onChange={(event) => setHobConnection(item.id, event.target.value as (typeof HOB_CONNECTIONS)[number])}
+            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm"
+          >
+            {HOB_CONNECTIONS.map((connection) => (
+              <option key={connection} value={connection}>
+                {HOB_CONNECTION_LABELS[connection]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <NumberField
         label={item.type === 'countertop' ? 'Длина' : 'Ширина'}
         value={item.params.width}
@@ -160,12 +207,19 @@ export function BlockProperties() {
         onChange={(depth) => updateParams(item.id, { depth })}
       />
 
-      {cabinetModule && family && (
+      {cabinetModule && family && !appliance && (
         <div className="space-y-2">
           <span className="block text-xs font-medium text-slate-600">Фасадная схема</span>
           <div className="grid gap-1.5">
             {family.facades.map((facade) => {
-              const compatible = cabinetFacadeAcceptsWidth(cabinetModule.familyId, facade.id, item.params.width)
+              const compatible =
+                cabinetFacadeAcceptsWidth(cabinetModule.familyId, facade.id, item.params.width) &&
+                !(
+                  cabinetModule.familyId === 'base-storage' &&
+                  cabinetModule.role &&
+                  cabinetModule.role !== 'storage' &&
+                  facade.id === 'three-drawers'
+                )
               return (
                 <button
                   key={facade.id}

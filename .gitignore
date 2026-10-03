@@ -10,3 +10,5 @@ test-results
 .vscode
 npm-debug.log*
 .claude
+skills
+skills/config.toml

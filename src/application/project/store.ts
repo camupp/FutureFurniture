@@ -7,7 +7,9 @@ import { createRoomSlice } from './slices/roomSlice'
 import { createOpeningsSlice } from './slices/openingsSlice'
 import { createUtilitiesSlice } from './slices/utilitiesSlice'
 import { createFurnitureSlice } from './slices/furnitureSlice'
+import { createGeneratorSlice } from './slices/generatorSlice'
 import { emptyHistory, finishHistoryGroup, recordProjectChange, startHistoryGroup, travelHistory } from './history'
+import { expandFurnitureGroups } from '@/domain/assemblies/furnitureGroups'
 
 const newId = () => crypto.randomUUID()
 
@@ -36,6 +38,13 @@ export const useAppStore = create<AppState>()((rawSet, get) => {
         history,
         historyRevision: state.historyRevision + 1,
         selection: selection && selectedObjects.some((item) => item.id === selection.id) ? selection : null,
+        selectedFurnitureIds:
+          selection?.kind === 'furniture'
+            ? expandFurnitureGroups(
+                project.furniture,
+                state.selectedFurnitureIds.filter((id) => project.furniture.some((item) => item.id === id)),
+              )
+            : [],
         elevationWallId: project.room.walls.some((wall) => wall.id === state.elevationWallId)
           ? state.elevationWallId
           : (project.room.walls[0]?.id ?? null),
@@ -55,5 +64,6 @@ export const useAppStore = create<AppState>()((rawSet, get) => {
     ...createOpeningsSlice(context),
     ...createUtilitiesSlice(context),
     ...createFurnitureSlice(context),
+    ...createGeneratorSlice(context),
   }
 })

@@ -73,7 +73,7 @@ export function UtilityShape({
       <Label x={0} y={0} scaleX={1 / scale} scaleY={1 / scale} offsetX={-14} offsetY={8} listening={false}>
         <Tag fill="#ffffff" opacity={0.9} cornerRadius={3} />
         <Text
-          text={`${UTILITY_LABELS[utility.type]} · ${utility.mount.kind === 'wall' ? `↑${utility.height}` : 'пол'}`}
+          text={`${UTILITY_LABELS[utility.type]}${utility.type === 'power' ? ` ×${utility.socketCount ?? 2}` : ''} · ${utility.mount.kind === 'wall' ? `↑${utility.height}` : 'пол'}`}
           fontSize={11}
           padding={3}
           fill="#0f172a"

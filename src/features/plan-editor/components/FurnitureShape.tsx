@@ -13,8 +13,9 @@ type Props = {
   draggable: boolean
   scale: number
   frontLayout?: CabinetFrontLayout
-  onSelect: () => void
-  onMove: (position: Point) => void
+  onSelect: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void
+  onContextMenu?: (event: Konva.KonvaEventObject<PointerEvent>) => void
+  onMove: (position: Point) => Point | void
   onPreview: (placement: Placement | null) => void
   /** Куда блок встанет, если отпустить его здесь. Считается на каждый кадр перетаскивания. */
   resolve: (position: Point) => Placement
@@ -30,6 +31,7 @@ export function FurnitureShape({
   scale,
   frontLayout,
   onSelect,
+  onContextMenu,
   onMove,
   onPreview,
   resolve,
@@ -57,7 +59,8 @@ export function FurnitureShape({
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
     const placement = applyPlacement(e.target)
     onPreview(null)
-    onMove(placement.position)
+    const committed = onMove(placement.position)
+    if (committed) e.target.position(committed)
   }
 
   return (
@@ -66,8 +69,11 @@ export function FurnitureShape({
       y={item.position.y}
       rotation={item.rotation}
       draggable={draggable}
-      onMouseDown={onSelect}
+      onMouseDown={(event) => {
+        if (event.evt.button === 0) onSelect(event)
+      }}
       onTouchStart={onSelect}
+      onContextMenu={onContextMenu}
       onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onDragStart={(event) => onPreview(applyPlacement(event.target))}

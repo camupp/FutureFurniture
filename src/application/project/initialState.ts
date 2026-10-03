@@ -27,7 +27,9 @@ export function createInitialData(newId: () => string) {
   return {
     room: createDefaultRoom(newId),
     furniture: [],
+    activeProjectId: null,
     selection: null,
+    selectedFurnitureIds: [],
     tool: 'select',
     orthoSnap: true,
     smartPlacement: true,
@@ -39,7 +41,9 @@ export function createInitialData(newId: () => string) {
     AppState,
     | 'room'
     | 'furniture'
+    | 'activeProjectId'
     | 'selection'
+    | 'selectedFurnitureIds'
     | 'tool'
     | 'orthoSnap'
     | 'smartPlacement'

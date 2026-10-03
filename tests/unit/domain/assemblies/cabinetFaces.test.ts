@@ -58,4 +58,21 @@ describe('shared cabinet facade sections', () => {
     expect(panels).toHaveLength(1)
     expect(panels[0]).toMatchObject({ kind: 'lift', bottom: 3, top: 697, handleY: 73, handleOrientation: 'horizontal' })
   })
+
+  it('uses appliance fronts instead of ordinary cabinet doors and drawers', () => {
+    expect(cabinetFacePanels(600, 820, true, undefined, { ...base, role: 'oven' }).map((panel) => panel.kind)).toEqual([
+      'oven',
+    ])
+    expect(
+      cabinetFacePanels(600, 820, true, undefined, { ...base, role: 'dishwasher' }).map((panel) => panel.kind),
+    ).toEqual(['dishwasher'])
+    expect(cabinetFacePanels(600, 2100, true, undefined, { ...tall, role: 'oven' }).map((panel) => panel.kind)).toEqual(
+      ['door', 'oven', 'door'],
+    )
+    expect(
+      cabinetFacePanels(600, 2100, true, undefined, { ...tall, facade: 'full-door', role: 'fridge' }).map(
+        (panel) => panel.kind,
+      ),
+    ).toEqual(['fridge', 'fridge'])
+  })
 })

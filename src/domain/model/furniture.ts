@@ -1,22 +1,28 @@
 import { z } from 'zod'
 import { pointSchema } from './point'
-import { CABINET_FAMILIES, CABINET_HANDLE_SIDES, CABINET_HANDLE_STYLES } from '../modules/cabinetFamilies'
+import {
+  BASE_CABINET_ROLES,
+  CABINET_FAMILIES,
+  CABINET_HANDLE_SIDES,
+  CABINET_HANDLE_STYLES,
+} from '../modules/cabinetFamilies'
 
-export const BLOCK_TYPES = ['cabinet', 'countertop', 'sink', 'hob'] as const
+export const BLOCK_TYPES = ['cabinet', 'countertop', 'sink', 'hob', 'fridge'] as const
 export type BlockType = (typeof BLOCK_TYPES)[number]
 
 export const BLOCK_LABELS: Record<BlockType, string> = {
   cabinet: 'Шкаф',
   countertop: 'Столешница',
   sink: 'Мойка',
-  hob: 'Плита',
+  hob: 'Кухонная плита',
+  fridge: 'Холодильник',
 }
 
 /** Встраиваемые блоки не участвуют в проверке пересечений: мойка живёт в тумбе, плита — в столешнице. */
 export const BUILT_IN_TYPES: BlockType[] = ['sink', 'hob']
 
 /**
- * Толщина опорной части врезного блока: бортик мойки, стеклянная плита варочной панели.
+ * Толщина опорной части врезного блока: бортик мойки, стеклянная поверхность кухонной плиты.
  * Только она остаётся над столешницей, остальное уходит в вырез.
  */
 export const BUILT_IN_FLANGE: Record<BlockType, number> = {
@@ -24,6 +30,7 @@ export const BUILT_IN_FLANGE: Record<BlockType, number> = {
   countertop: 0,
   sink: 12,
   hob: 10,
+  fridge: 0,
 }
 
 export type Limit = { min: number; max: number; step: number }
@@ -53,6 +60,21 @@ export const BLOCK_LIMITS: Record<BlockType, { width: Limit; height: Limit; dept
     height: { min: 30, max: 120, step: 5 },
     depth: { min: 400, max: 600, step: 10 },
   },
+  fridge: {
+    width: { min: 500, max: 900, step: 10 },
+    height: { min: 1400, max: 2400, step: 10 },
+    depth: { min: 500, max: 900, step: 10 },
+  },
+}
+
+/** Неизвестный тип не превращается автоматически в газовую или электрическую панель. */
+export const HOB_CONNECTIONS = ['unknown', 'gas', 'electric', 'induction'] as const
+export type HobConnection = (typeof HOB_CONNECTIONS)[number]
+export const HOB_CONNECTION_LABELS: Record<HobConnection, string> = {
+  unknown: 'Не указан',
+  gas: 'Газовая',
+  electric: 'Электрическая',
+  induction: 'Индукционная',
 }
 
 export const ELEVATION_LIMITS = { min: 0, max: 2500, step: 10 } as const
@@ -102,26 +124,49 @@ const cabinetHardwareShape = {
   handleSide: z.enum(CABINET_HANDLE_SIDES).optional(),
 }
 
-export const cabinetModuleSchema = z.discriminatedUnion('familyId', [
-  z.object({
-    familyId: z.literal(CABINET_FAMILIES['base-storage'].id),
-    version: z.literal(1),
-    facade: z.enum(['single-door', 'double-door', 'three-drawers']),
-    ...cabinetHardwareShape,
-  }),
-  z.object({
-    familyId: z.literal(CABINET_FAMILIES['wall-storage'].id),
-    version: z.literal(1),
-    facade: z.enum(['single-door', 'double-door', 'lift-up']),
-    ...cabinetHardwareShape,
-  }),
-  z.object({
-    familyId: z.literal(CABINET_FAMILIES['tall-storage'].id),
-    version: z.literal(1),
-    facade: z.enum(['stacked-doors', 'full-door']),
-    ...cabinetHardwareShape,
-  }),
-])
+export const cabinetModuleSchema = z
+  .discriminatedUnion('familyId', [
+    z.object({
+      familyId: z.literal(CABINET_FAMILIES['base-storage'].id),
+      version: z.literal(1),
+      facade: z.enum(['single-door', 'double-door', 'three-drawers']),
+      role: z.enum(BASE_CABINET_ROLES).optional(),
+      ...cabinetHardwareShape,
+    }),
+    z.object({
+      familyId: z.literal(CABINET_FAMILIES['wall-storage'].id),
+      version: z.literal(1),
+      facade: z.enum(['single-door', 'double-door', 'lift-up']),
+      ...cabinetHardwareShape,
+    }),
+    z.object({
+      familyId: z.literal(CABINET_FAMILIES['tall-storage'].id),
+      version: z.literal(1),
+      facade: z.enum(['stacked-doors', 'full-door']),
+      role: z.enum(['storage', 'oven', 'fridge']).optional(),
+      ...cabinetHardwareShape,
+    }),
+  ])
+  .superRefine((module, context) => {
+    if (
+      module.familyId === 'base-storage' &&
+      module.role &&
+      module.role !== 'storage' &&
+      module.facade === 'three-drawers'
+    ) {
+      context.addIssue({ code: 'custom', message: 'База под технику не может иметь три ящика', path: ['facade'] })
+    }
+    if (
+      module.familyId === 'base-storage' &&
+      (module.role === 'oven' || module.role === 'dishwasher') &&
+      module.facade !== 'single-door'
+    )
+      context.addIssue({ code: 'custom', message: 'Для техники используется фронт прибора', path: ['facade'] })
+    if (module.familyId === 'tall-storage' && module.role === 'oven' && module.facade !== 'stacked-doors')
+      context.addIssue({ code: 'custom', message: 'Духовка в пенале занимает отдельную нишу', path: ['facade'] })
+    if (module.familyId === 'tall-storage' && module.role === 'fridge' && module.facade !== 'full-door')
+      context.addIssue({ code: 'custom', message: 'Встроенный холодильник имеет свой фасад', path: ['facade'] })
+  })
 export type CabinetModule = z.infer<typeof cabinetModuleSchema>
 
 export const furnitureItemSchema = z.object({
@@ -138,6 +183,10 @@ export const furnitureItemSchema = z.object({
   /** Заполняется только у мебели, которую пользователь прикрепил к стене. */
   wallAnchor: wallAnchorSchema.optional(),
   autoCountertop: autoCountertopSchema.optional(),
+  /** Пользовательская группа для совместного выбора и переноса; не связана с автосборкой столешниц. */
+  groupId: z.string().optional(),
   cabinetModule: cabinetModuleSchema.optional(),
+  /** Тип питания относится только к кухонной плите; у старых эскизов он неизвестен. */
+  hobConnection: z.enum(HOB_CONNECTIONS).optional(),
 })
 export type FurnitureItem = z.infer<typeof furnitureItemSchema>

@@ -1,14 +1,19 @@
-import type { FurnitureItem, Opening, Room, Utility } from '@/domain/model'
+import { BUILT_IN_FLANGE, type FurnitureItem, type Opening, type Room, type Utility } from '@/domain/model'
 import { blocksOverlap, footprintsOverlap, isBuiltIn } from '@/domain/geometry/collision'
 import { itemFootprint, roomPolygon, wallFootprint } from '@/domain/geometry/geometry'
-import { bounds, pointInPolygon } from '@/shared/lib/geometry2d'
+import { bounds, pointInPolygon, rotatePoint } from '@/shared/lib/geometry2d'
 import { clampOffset, openingObstaclePolygons } from '@/domain/room/openings'
 import { utilityPoint } from '@/domain/room/utilities'
 import { wallAnchorIsValid } from '@/domain/placement/wallAnchors'
 import { placementObstacles } from './obstacles'
+import { applianceUtilityTypes, cabinetAppliance, hobConnectionFor, hobUtilityType } from '@/domain/appliances/profiles'
+import { matchPowerOutlets, rearServiceDistance, type PowerDemand } from './power'
+import { hostCabinet } from '@/domain/assemblies/hostedBuiltIns'
 
 /** Свободная зона вокруг вывода, необходимая для доступа и подключения. */
 export const UTILITY_CLEARANCE = 150
+/** Только эскизный радиус до задней зоны плиты, не допустимая длина газового шланга. */
+export const GAS_REACH_MM = 800
 
 export function isItemInsideRoom(item: FurnitureItem, room: Room): boolean {
   const polygon = roomPolygon(room.walls)
@@ -61,32 +66,10 @@ function touchesUtility(item: FurnitureItem, utility: Utility, room: Room): bool
   return footprintsOverlap(footprint, area)
 }
 
-/**
- * Возвращает единственную несущую базу для врезного блока. Совпадения только на плане
- * недостаточно: нижний и навесной шкаф могут иметь одинаковые X/Y. Поэтому кандидат
- * обязан пересекаться с техникой и по высоте, а из нескольких выбирается ближайший
- * к центру техники.
- */
-function hostCabinet(builtIn: FurnitureItem, furniture: FurnitureItem[]): FurnitureItem | null {
-  const builtInBottom = builtIn.elevation
-  const builtInTop = builtIn.elevation + builtIn.params.height
-  const candidates = furniture.filter((candidate) => {
-    if (candidate.type !== 'cabinet') return false
-    const cabinetTop = candidate.elevation + candidate.params.height
-    const overlapsByHeight = candidate.elevation < builtInTop && builtInBottom < cabinetTop
-    return overlapsByHeight && footprintsOverlap(itemFootprint(candidate), itemFootprint(builtIn))
-  })
-
-  return (
-    candidates.sort((a, b) => {
-      const aTopDistance = Math.abs(a.elevation + a.params.height - builtInTop)
-      const bTopDistance = Math.abs(b.elevation + b.params.height - builtInTop)
-      if (aTopDistance !== bTopDistance) return aTopDistance - bTopDistance
-      const aDistance = Math.hypot(a.position.x - builtIn.position.x, a.position.y - builtIn.position.y)
-      const bDistance = Math.hypot(b.position.x - builtIn.position.x, b.position.y - builtIn.position.y)
-      return aDistance - bDistance
-    })[0] ?? null
-  )
+function gasNearHost(item: FurnitureItem, utility: Utility, room: Room): boolean {
+  if (utility.type !== 'gas') return false
+  const distance = rearServiceDistance(item, utility, room)
+  return distance !== null && distance <= GAS_REACH_MM
 }
 
 function hostsBuiltIn(item: FurnitureItem, type: 'sink' | 'hob', furniture: FurnitureItem[]): boolean {
@@ -94,33 +77,149 @@ function hostsBuiltIn(item: FurnitureItem, type: 'sink' | 'hob', furniture: Furn
   return furniture.some((candidate) => candidate.type === type && hostCabinet(candidate, furniture)?.id === item.id)
 }
 
+function utilityServesBuiltIn(utility: Utility, furniture: FurnitureItem[], room: Room): boolean {
+  if (utility.type !== 'water' && utility.type !== 'sewer' && utility.type !== 'gas') return false
+  return furniture.some((builtIn) => {
+    if (builtIn.type === 'sink' && utility.type === 'gas') return false
+    if (builtIn.type === 'hob' && (utility.type !== 'gas' || hobUtilityType(hobConnectionFor(builtIn)) !== 'gas'))
+      return false
+    if (builtIn.type !== 'sink' && builtIn.type !== 'hob') return false
+    const host = hostCabinet(builtIn, furniture)
+    return (
+      host !== null && (utility.type === 'gas' ? gasNearHost(host, utility, room) : touchesUtility(host, utility, room))
+    )
+  })
+}
+
+function powerDemands(furniture: FurnitureItem[]): PowerDemand[] {
+  const demands: PowerDemand[] = []
+  for (const item of furniture) {
+    if (item.type === 'hob' && hobUtilityType(hobConnectionFor(item)) === 'power') {
+      const host = hostCabinet(item, furniture)
+      if (host) demands.push({ key: `hob:${item.id}`, item: host })
+    }
+    const appliance = item.type === 'fridge' ? 'fridge' : cabinetAppliance(item)
+    if (appliance && applianceUtilityTypes(appliance).includes('power')) {
+      demands.push({ key: `appliance:${item.id}`, item })
+    }
+  }
+  return demands
+}
+
+/** Схематическая зона перед открываемым прибором, не точная дуга конкретной дверцы. */
+function applianceFrontZone(item: FurnitureItem, reach: number) {
+  const halfWidth = Math.max(50, item.params.width / 2 - 30)
+  const front = item.params.depth / 2 + 10
+  return [
+    { x: -halfWidth, y: front },
+    { x: halfWidth, y: front },
+    { x: halfWidth, y: front + reach },
+    { x: -halfWidth, y: front + reach },
+  ].map((local) =>
+    rotatePoint({ x: item.position.x + local.x, y: item.position.y + local.y }, item.position, item.rotation),
+  )
+}
+
+function applianceAccessWarning(item: FurnitureItem, furniture: FurnitureItem[], room: Room): string | null {
+  const appliance = item.type === 'fridge' ? 'fridge' : cabinetAppliance(item)
+  if (!appliance) return null
+  const zone = applianceFrontZone(item, appliance === 'oven' ? 500 : 600)
+  const polygon = roomPolygon(room.walls)
+  const outside = polygon.length >= 3 && zone.some((corner) => !pointInPolygon(corner, polygon))
+  const wall = room.walls.some((candidate) => footprintsOverlap(zone, wallFootprint(candidate)))
+  const furnitureBlock = furniture.some(
+    (candidate) =>
+      candidate.id !== item.id &&
+      !isBuiltIn(candidate) &&
+      candidate.elevation < item.elevation + item.params.height &&
+      item.elevation < candidate.elevation + candidate.params.height &&
+      footprintsOverlap(zone, itemFootprint(candidate)),
+  )
+  if (!outside && !wall && !furnitureBlock) return null
+  return appliance === 'fridge'
+    ? 'Перед холодильником недостаточно свободного места для открывания'
+    : appliance === 'dishwasher'
+      ? 'Перед посудомойкой недостаточно свободного места для открывания'
+      : 'Перед духовкой недостаточно свободного места для открывания'
+}
+
 export type UtilityAssessment = { connected: Utility[]; warnings: string[] }
 
 /**
- * Инженерный вывод — точка подключения, а не препятствие. База с мойкой принимает
- * воду/канализацию, база с панелью — газ. Несвязанный или недостающий вывод даёт
- * предупреждение, но не превращает корректную геометрию мебели в красную ошибку.
+ * Вывод — точка на эскизе, а не сертификат возможности подключения. Совместимость
+ * зависит от типа прибора. Отсутствие нужного вывода даёт предупреждение, но не
+ * превращает корректную геометрию мебели в красную ошибку.
  */
 export function assessUtilities(item: FurnitureItem, furniture: FurnitureItem[], room: Room): UtilityAssessment {
-  if (isBuiltIn(item)) return { connected: [], warnings: [] }
+  const powerConnections = matchPowerOutlets(powerDemands(furniture), room)
+  if (isBuiltIn(item)) {
+    const host = hostCabinet(item, furniture)
+    if (!host)
+      return {
+        connected: [],
+        warnings: [
+          item.type === 'sink' ? 'Для мойки не найдена опорная база' : 'Для кухонной плиты не найдена опорная база',
+        ],
+      }
+    if (item.type === 'hob') {
+      const required = hobUtilityType(hobConnectionFor(item))
+      if (!required) return { connected: [], warnings: ['Тип подключения кухонной плиты не указан'] }
+      const power = powerConnections.get(`hob:${item.id}`)
+      if (required === 'power' && power) return { connected: [power], warnings: [] }
+      const gas = room.utilities.find((utility) => gasNearHost(host, utility, room))
+      if (required === 'gas' && gas) return { connected: [gas], warnings: [] }
+      return {
+        connected: [],
+        warnings: [
+          required === 'gas'
+            ? 'Для газовой плиты не найден вывод газа'
+            : 'Для электрической плиты не найден вывод питания',
+        ],
+      }
+    }
+    return { connected: [], warnings: [] }
+  }
 
   const covered = room.utilities.filter((utility) => touchesUtility(item, utility, room))
   const hasSink = hostsBuiltIn(item, 'sink', furniture)
   const hasHob = hostsBuiltIn(item, 'hob', furniture)
+  const hob = hasHob
+    ? furniture.find((candidate) => candidate.type === 'hob' && hostCabinet(candidate, furniture)?.id === item.id)
+    : undefined
+  const hobConnection = hob ? hobConnectionFor(hob) : 'unknown'
+  const hobRequiredUtility = hobUtilityType(hobConnection)
+  const hobPower = hob ? powerConnections.get(`hob:${hob.id}`) : undefined
+  const hobGas =
+    hobRequiredUtility === 'gas' ? room.utilities.find((utility) => gasNearHost(item, utility, room)) : undefined
+  const appliance = item.type === 'fridge' ? 'fridge' : cabinetAppliance(item)
   const connected: Utility[] = []
   const warnings: string[] = []
+
+  // Вода и канализация посудомойки могут быть за соседней базой с мойкой.
+  // Радиус означает лишь «вывод рядом»; реальную трассу нужно проверить на объекте.
+  const nearby = (utility: Utility) => {
+    if (touchesUtility(item, utility, room)) return true
+    if (appliance !== 'dishwasher' || (utility.type !== 'water' && utility.type !== 'sewer')) return false
+    if (utility.height > item.elevation + item.params.height) return false
+    const point = utilityPoint(utility, room)
+    return Math.hypot(point.x - item.position.x, point.y - item.position.y) <= 900
+  }
+  const usable = room.utilities.filter(nearby)
 
   for (const utility of covered) {
     if ((utility.type === 'water' || utility.type === 'sewer') && hasSink) {
       connected.push(utility)
-    } else if (utility.type === 'gas' && hasHob) {
+    } else if (utility.type === 'gas' && hobRequiredUtility === 'gas' && utility.id === hobGas?.id) {
+      connected.push(utility)
+    } else if ((utility.type === 'water' || utility.type === 'sewer') && appliance === 'dishwasher') {
       connected.push(utility)
     } else if (utility.type === 'water') {
-      warnings.push('Вывод воды находится в базе без мойки')
+      if (!utilityServesBuiltIn(utility, furniture, room)) warnings.push('Вывод воды находится в базе без мойки')
     } else if (utility.type === 'sewer') {
-      warnings.push('Канализация находится в базе без мойки')
+      if (!utilityServesBuiltIn(utility, furniture, room)) warnings.push('Канализация находится в базе без мойки')
     } else if (utility.type === 'gas') {
-      warnings.push('Газовый вывод находится в базе без варочной панели')
+      if (!utilityServesBuiltIn(utility, furniture, room))
+        warnings.push('Газовый вывод находится в базе без кухонной плиты')
     } else if (utility.type === 'vent') {
       warnings.push('Блок перекрывает доступ к вентиляции')
     }
@@ -131,6 +230,49 @@ export function assessUtilities(item: FurnitureItem, furniture: FurnitureItem[],
     if (!covered.some((utility) => utility.type === 'water')) warnings.push('Для мойки не найден вывод воды')
     if (!covered.some((utility) => utility.type === 'sewer')) warnings.push('Для мойки не найдена канализация')
   }
+
+  if (hasHob) {
+    if (hobConnection === 'unknown') warnings.push('Тип подключения кухонной плиты не указан')
+    else if (hobRequiredUtility === 'power' && hobPower) connected.push(hobPower)
+    else if (hobRequiredUtility === 'gas' && hobGas && !connected.some((utility) => utility.id === hobGas.id))
+      connected.push(hobGas)
+    else if (hobRequiredUtility && (hobRequiredUtility === 'power' || !hobGas))
+      warnings.push(
+        hobRequiredUtility === 'gas'
+          ? 'Для газовой плиты не найден вывод газа'
+          : 'Для электрической плиты не найден вывод питания',
+      )
+  }
+
+  if (appliance) {
+    for (const type of applianceUtilityTypes(appliance)) {
+      if (type === 'power') {
+        const power = powerConnections.get(`appliance:${item.id}`)
+        if (power && !connected.some((utility) => utility.id === power.id)) connected.push(power)
+        else if (!power) {
+          const name = appliance === 'oven' ? 'духовки' : appliance === 'dishwasher' ? 'посудомойки' : 'холодильника'
+          warnings.push(`Для ${name} не найдена доступная розетка у задней части техники`)
+        }
+        continue
+      }
+      if (usable.some((utility) => utility.type === type)) {
+        const adjacent = usable.find((utility) => utility.type === type)
+        if (adjacent && !connected.some((utility) => utility.id === adjacent.id)) connected.push(adjacent)
+      } else {
+        const name = appliance === 'oven' ? 'духовки' : appliance === 'dishwasher' ? 'посудомойки' : 'холодильника'
+        const nearbySuffix = appliance === 'dishwasher' ? ' поблизости' : ''
+        if (type === 'sewer') warnings.push(`Для ${name} не найдена канализация${nearbySuffix}`)
+        else warnings.push(`Для ${name} не найден вывод воды${nearbySuffix}`)
+      }
+    }
+  }
+  if (appliance === 'oven' && hasSink) warnings.push('Духовка и мойка не могут занимать одну базу')
+  if (appliance === 'dishwasher' && hasSink) warnings.push('Посудомойка и мойка не могут занимать одну базу')
+  if (appliance === 'dishwasher' && hasHob) warnings.push('Совместимость кухонной плиты над посудомойкой не проверена')
+  if (appliance === 'oven' && hobRequiredUtility === 'power')
+    warnings.push('Для духовки и плиты проверьте мощность и требования к отдельным линиям питания')
+  const accessWarning = applianceAccessWarning(item, furniture, room)
+  if (accessWarning) warnings.push(accessWarning)
 
   return { connected, warnings }
 }
@@ -188,7 +330,7 @@ export function invalidItemIds(furniture: FurnitureItem[], room: Room): Set<stri
 }
 
 export type PlacementIssue = {
-  code: 'outside' | 'anchor' | 'wall' | 'furniture' | 'opening' | 'door-swing'
+  code: 'outside' | 'anchor' | 'wall' | 'furniture' | 'opening' | 'door-swing' | 'appliance'
   message: string
   targetId?: string
 }
@@ -201,5 +343,37 @@ export function itemPlacementIssues(item: FurnitureItem, furniture: FurnitureIte
   if (!isItemInsideRoom(item, room)) issues.push({ code: 'outside', message: 'Блок выходит за контур помещения' })
   if (!wallAnchorIsValid(item, room))
     issues.push({ code: 'anchor', message: 'Блок не помещается на свободном участке привязанной стены' })
+  if (isBuiltIn(item)) {
+    const host = hostCabinet(item, furniture)
+    if (!host) issues.push({ code: 'appliance', message: 'Врезному прибору нужна опорная база' })
+    const appliance = host ? cabinetAppliance(host) : null
+    if (
+      (item.type === 'sink' && appliance) ||
+      (item.type === 'hob' && (appliance === 'dishwasher' || appliance === 'fridge'))
+    )
+      issues.push({ code: 'appliance', message: 'Врезной прибор несовместим с назначением базы', targetId: host?.id })
+    const flange = BUILT_IN_FLANGE[item.type]
+    const surface = item.elevation + item.params.height - flange
+    if (
+      !furniture.some(
+        (candidate) =>
+          candidate.type === 'countertop' &&
+          Math.abs(candidate.elevation + candidate.params.height - surface) <= 15 &&
+          footprintsOverlap(footprint, itemFootprint(candidate)),
+      )
+    )
+      issues.push({ code: 'appliance', message: 'Врезному прибору нужна столешница' })
+    if (
+      furniture.some(
+        (candidate) =>
+          candidate.id !== item.id &&
+          isBuiltIn(candidate) &&
+          item.elevation < candidate.elevation + candidate.params.height &&
+          candidate.elevation < item.elevation + item.params.height &&
+          footprintsOverlap(footprint, itemFootprint(candidate)),
+      )
+    )
+      issues.push({ code: 'appliance', message: 'Врезные приборы занимают одно место' })
+  }
   return issues
 }

@@ -42,6 +42,8 @@ export type UtilityMount = z.infer<typeof utilityMountSchema>
 export const utilitySchema = z.object({
   id: z.string(),
   type: z.enum(UTILITY_TYPES),
+  /** Число физических гнёзд. Старые отметки питания считаются двойными. */
+  socketCount: z.union([z.literal(1), z.literal(2)]).optional(),
   /**
    * Резервная мировая координата и координата напольного вывода. Для настенного
    * вывода фактическое положение вычисляется из стены, чтобы он следовал за ней.

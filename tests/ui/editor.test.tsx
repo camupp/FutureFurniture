@@ -70,6 +70,34 @@ it('changes the base cabinet handle style and side from its properties', () => {
   })
 })
 
+it('lets a measured hob declare its connection and explains a missing gas outlet', () => {
+  const cabinet = makeFurniture('cabinet')
+  const hob = makeFurniture('hob')
+  useAppStore.setState({ furniture: [cabinet, hob], selection: { kind: 'furniture', id: hob.id } })
+  render(<PropertiesPanel />)
+  expect(container.textContent).toContain('Тип подключения кухонной плиты не указан')
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Тип кухонной плиты"]')!
+  act(() => {
+    select.value = 'gas'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(useAppStore.getState().furniture[1]?.hobConnection).toBe('gas')
+  expect(container.textContent).toContain('Для газовой плиты не найден вывод газа')
+})
+
+it('lets the surveyor mark a power outlet as single or double', () => {
+  const power = makeUtility('power', { socketCount: 1 })
+  useAppStore.setState({ room: makeRoom({ utilities: [power] }), selection: { kind: 'utility', id: power.id } })
+  render(<PropertiesPanel />)
+  const select = container.querySelector<HTMLSelectElement>('select')!
+  expect(select.value).toBe('1')
+  act(() => {
+    select.value = '2'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(useAppStore.getState().room.utilities[0]?.socketCount).toBe(2)
+})
+
 it('offers tall and wall facade schemes without base drawers', () => {
   const tall = makeFurniture('cabinet', {
     params: { ...makeFurniture().params, height: 2100 },

@@ -5,7 +5,7 @@ import type { FurnitureItem } from '@/domain/model'
 import { cabinetFrontLayout, type CabinetFrontLayout } from '@/domain/assemblies/cabinetJoints'
 import { cabinetModuleFor } from '@/domain/modules/cabinetFamilies'
 import { degToRad, mmToM } from '@/shared/lib/units'
-import { Cabinet, Countertop, Hob, Sink, type Cutout } from './blocks'
+import { Cabinet, Countertop, Fridge, Hob, Sink, type Cutout } from './blocks'
 import { calculateCutouts } from './geometry/cutouts'
 
 type Props = {
@@ -15,6 +15,7 @@ type Props = {
   invalid: boolean
   warning: boolean
   onSelect: () => void
+  preview?: boolean
 }
 
 function BlockGeometry({
@@ -38,7 +39,9 @@ function BlockGeometry({
     case 'sink':
       return <Sink {...item.params} />
     case 'hob':
-      return <Hob {...item.params} />
+      return <Hob {...item.params} connection={item.hobConnection} />
+    case 'fridge':
+      return <Fridge {...item.params} />
     case 'cabinet':
       const module = cabinetModuleFor(item)!
       return (
@@ -53,7 +56,7 @@ function BlockGeometry({
   }
 }
 
-export function FurnitureMesh({ item, others, selected, invalid, warning, onSelect }: Props) {
+export function FurnitureMesh({ item, others, selected, invalid, warning, onSelect, preview = false }: Props) {
   const { width, height, depth } = item.params
   const cutouts = useMemo(() => calculateCutouts(item, others), [item, others])
   const frontLayout = useMemo(
@@ -70,9 +73,16 @@ export function FurnitureMesh({ item, others, selected, invalid, warning, onSele
     <group
       position={[mmToM(item.position.x), mmToM(item.elevation), mmToM(item.position.y)]}
       rotation={[0, -degToRad(item.rotation), 0]}
-      onClick={handleClick}
+      onClick={preview ? undefined : handleClick}
     >
       <BlockGeometry item={item} cutouts={cutouts} frontLayout={frontLayout} />
+      {preview && (
+        <mesh position={[0, mmToM(height) / 2, 0]} raycast={() => null}>
+          <boxGeometry args={[mmToM(width), mmToM(height), mmToM(depth)]} />
+          <meshBasicMaterial transparent opacity={0.16} color="#2563eb" depthWrite={false} />
+          <Edges color="#2563eb" />
+        </mesh>
+      )}
       {(selected || invalid || warning) && (
         <mesh position={[0, mmToM(height) / 2, 0]} raycast={() => null}>
           <boxGeometry args={[mmToM(width), mmToM(height), mmToM(depth)]} />

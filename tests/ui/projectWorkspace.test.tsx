@@ -87,3 +87,47 @@ it('replaces the previous workspace on every project switch instead of accumulat
   }
   expect(errors.mock.calls.flat().join(' ')).not.toContain('same key')
 })
+
+it('keeps one workspace while the kitchen proposal controls change repeatedly', async () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  await act(async () =>
+    root.render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    ),
+  )
+  const open = [...container.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Собрать кухню',
+  )!
+  act(() => open.click())
+
+  const wall = container.querySelector<HTMLSelectElement>('#generator-wall')!
+  const prep = container.querySelector<HTMLSelectElement>('#generator-prep')!
+  const storage = container.querySelector<HTMLSelectElement>('#generator-storage')!
+  for (const [input, values] of [
+    [wall, [...wall.options].map((option) => option.value)],
+    [prep, ['1200', '600']],
+    [storage, ['more-storage', 'balanced']],
+  ] as const) {
+    for (const value of values) {
+      act(() => {
+        input.value = value
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      expect(container.querySelectorAll('main')).toHaveLength(1)
+      expect(container.querySelectorAll('[data-testid="room-editor"]')).toHaveLength(1)
+      expect(container.querySelectorAll('[data-testid="scene-3d"]')).toHaveLength(1)
+    }
+  }
+  for (const checkbox of container.querySelectorAll<HTMLInputElement>('[role="dialog"] input[type="checkbox"]')) {
+    act(() => checkbox.click())
+    expect(container.querySelectorAll('main')).toHaveLength(1)
+  }
+  act(() => container.querySelector<HTMLButtonElement>('[aria-label="Закрыть генератор"]')!.click())
+  expect(container.querySelectorAll('main')).toHaveLength(1)
+  expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(0)
+  act(() => open.click())
+  expect(container.querySelectorAll('main')).toHaveLength(1)
+  expect(errors.mock.calls.flat().join(' ')).not.toContain('same key')
+})

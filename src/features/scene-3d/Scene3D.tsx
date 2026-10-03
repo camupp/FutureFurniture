@@ -16,8 +16,9 @@ import { FurnitureMesh } from './FurnitureMesh'
 import { RoomMesh } from './RoomMesh'
 import { sceneCanvas } from './screenshot'
 import { CameraFit } from './components/CameraFit'
+import type { FurnitureItem } from '@/domain/model'
 
-export function Scene3D() {
+export function Scene3D({ previewFurniture = [] }: { previewFurniture?: FurnitureItem[] }) {
   const room = useAppStore((s) => s.room)
   const furniture = useAppStore((s) => s.furniture)
   const selection = useAppStore((s) => s.selection)
@@ -91,6 +92,18 @@ export function Scene3D() {
             invalid={invalid.has(item.id)}
             warning={warnings.has(item.id)}
             onSelect={() => select({ kind: 'furniture', id: item.id })}
+          />
+        ))}
+        {previewFurniture.map((item) => (
+          <FurnitureMesh
+            key={item.id}
+            item={item}
+            others={[...furniture, ...previewFurniture]}
+            selected={false}
+            invalid={false}
+            warning={false}
+            preview
+            onSelect={() => undefined}
           />
         ))}
 

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '@/application/project'
 import { utilityPoint } from '@/domain/room/utilities'
 import { blocksOverlap } from '@/domain/geometry/collision'
-import { makeRoom } from '../fixtures'
+import { makeRoom, makeUtility } from '../fixtures'
 import { makeFurniture } from '../fixtures'
 import { furnitureFromWallAnchor } from '@/domain/placement/wallAnchors'
 import { normalizeProjectDocument } from '@/application/project/persistence'
@@ -44,6 +44,15 @@ describe('opening actions', () => {
 })
 
 describe('utility actions', () => {
+  it('creates a double socket and keeps the project reach setting', () => {
+    useAppStore.getState().addUtility({ x: 1800, y: 0 }, 'power', { kind: 'wall', wallId: 'top', offset: 1800 })
+    expect(useAppStore.getState().room.utilities[0]?.socketCount).toBe(2)
+    useAppStore.getState().setPowerReach(1400)
+    expect(useAppStore.getState().room.powerReachMm).toBe(1400)
+    useAppStore.getState().clearRoom()
+    expect(useAppStore.getState().room.powerReachMm).toBe(1400)
+  })
+
   it('creates and positions a wall-mounted utility', () => {
     useAppStore.getState().addUtility({ x: 1200, y: 0 }, 'water', { kind: 'wall', wallId: 'top', offset: 1200 })
     const state = useAppStore.getState()
@@ -86,6 +95,17 @@ describe('utility actions', () => {
 })
 
 describe('persistence migration', () => {
+  it('keeps legacy power outlets usable as double sockets', () => {
+    const power = makeUtility('power', { mount: { kind: 'wall', wallId: 'top', offset: 1800 }, height: 1100 })
+    const document = normalizeProjectDocument(
+      { room: makeRoom({ utilities: [power] }), furniture: [] },
+      useAppStore.getState(),
+      () => crypto.randomUUID(),
+    )!
+    expect(document.room.utilities[0]?.socketCount).toBeUndefined()
+    expect(document.room.powerReachMm).toBeUndefined()
+  })
+
   it('recognizes old interior walls without changing the saved floor outline', () => {
     const room = makePartitionedRoom()
     const legacyWalls = room.walls.map(({ kind: _kind, ...wall }) => wall)

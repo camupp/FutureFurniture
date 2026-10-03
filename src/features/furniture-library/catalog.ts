@@ -1,4 +1,10 @@
-import { BUILT_IN_FLANGE, type BlockParams, type BlockType, type CabinetModule } from '@/domain/model'
+import {
+  BUILT_IN_FLANGE,
+  type BlockParams,
+  type BlockType,
+  type CabinetModule,
+  type HobConnection,
+} from '@/domain/model'
 import { CABINET_FAMILIES } from '@/domain/modules/cabinetFamilies'
 
 /**
@@ -8,11 +14,12 @@ import { CABINET_FAMILIES } from '@/domain/modules/cabinetFamilies'
 export type BlockPreset = {
   id: string
   label: string
-  category: 'Корпусные' | 'Рабочая зона'
+  category: 'Корпусные' | 'Рабочая зона' | 'Техника'
   type: BlockType
   elevation: number
   params: BlockParams
   cabinetModule?: CabinetModule
+  hobConnection?: HobConnection
 }
 
 const OAK = '#d3bb98'
@@ -38,7 +45,7 @@ const flushWithWorktop = (height: number, flange: number) => WORKTOP_TOP - (heig
 export const BLOCK_PRESETS: BlockPreset[] = [
   {
     id: 'base-cabinet',
-    label: 'Шкаф напольный',
+    label: 'Нижняя база',
     category: 'Корпусные',
     type: 'cabinet',
     elevation: 0,
@@ -47,7 +54,7 @@ export const BLOCK_PRESETS: BlockPreset[] = [
   },
   {
     id: 'wall-cabinet',
-    label: 'Шкаф навесной',
+    label: 'Верхняя база',
     category: 'Корпусные',
     type: 'cabinet',
     elevation: 1400,
@@ -81,12 +88,57 @@ export const BLOCK_PRESETS: BlockPreset[] = [
   },
   {
     id: 'hob',
-    label: 'Плита',
-    category: 'Рабочая зона',
+    label: 'Кухонная плита',
+    category: 'Техника',
     type: 'hob',
     elevation: flushWithWorktop(HOB_HEIGHT, BUILT_IN_FLANGE.hob),
     params: { width: 600, height: HOB_HEIGHT, depth: 520, facadeColor: GLASS },
+    hobConnection: 'unknown',
+  },
+  {
+    id: 'base-oven',
+    label: 'База с духовкой',
+    category: 'Техника',
+    type: 'cabinet',
+    elevation: 0,
+    params: { width: 600, height: WORKTOP_LEVEL, depth: 560, facadeColor: OAK },
+    cabinetModule: { familyId: 'base-storage', version: 1, facade: 'single-door', role: 'oven' },
+  },
+  {
+    id: 'tall-oven',
+    label: 'Пенал с духовкой',
+    category: 'Техника',
+    type: 'cabinet',
+    elevation: 0,
+    params: { width: 600, height: 2100, depth: 560, facadeColor: OAK },
+    cabinetModule: { familyId: 'tall-storage', version: 1, facade: 'stacked-doors', role: 'oven' },
+  },
+  {
+    id: 'dishwasher',
+    label: 'Посудомойка',
+    category: 'Техника',
+    type: 'cabinet',
+    elevation: 0,
+    params: { width: 600, height: WORKTOP_LEVEL, depth: 560, facadeColor: OAK },
+    cabinetModule: { familyId: 'base-storage', version: 1, facade: 'single-door', role: 'dishwasher' },
+  },
+  {
+    id: 'freestanding-fridge',
+    label: 'Холодильник отдельный',
+    category: 'Техника',
+    type: 'fridge',
+    elevation: 0,
+    params: { width: 600, height: 2000, depth: 650, facadeColor: '#e8e4dd' },
+  },
+  {
+    id: 'built-in-fridge',
+    label: 'Холодильник встроенный',
+    category: 'Техника',
+    type: 'cabinet',
+    elevation: 0,
+    params: { width: 600, height: 2100, depth: 560, facadeColor: OAK },
+    cabinetModule: { familyId: 'tall-storage', version: 1, facade: 'full-door', role: 'fridge' },
   },
 ]
 
-export const PRESET_CATEGORIES = ['Корпусные', 'Рабочая зона'] as const
+export const PRESET_CATEGORIES = ['Корпусные', 'Рабочая зона', 'Техника'] as const

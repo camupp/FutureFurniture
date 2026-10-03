@@ -1,4 +1,4 @@
-import type { FurnitureItem } from '@/domain/model'
+import { BUILT_IN_FLANGE, type FurnitureItem } from '@/domain/model'
 import { isBuiltIn } from '@/domain/geometry/collision'
 import { itemFootprint } from '@/domain/geometry/geometry'
 import { bounds, rotatePoint } from '@/shared/lib/geometry2d'
@@ -17,6 +17,14 @@ export function calculateCutouts(item: FurnitureItem, others: FurnitureItem[]): 
 
   return others.flatMap((other) => {
     if (!isBuiltIn(other)) return []
+    if (item.type === 'countertop') {
+      const surface = other.elevation + other.params.height - BUILT_IN_FLANGE[other.type]
+      if (Math.abs(item.elevation + item.params.height - surface) > 15) return []
+    } else if (
+      other.elevation >= item.elevation + item.params.height ||
+      other.elevation + other.params.height <= item.elevation
+    )
+      return []
     const localCorners = itemFootprint(other).map((corner) => rotatePoint(corner, item.position, -item.rotation))
     const box = bounds(localCorners)
     const x = box.center.x - item.position.x
